@@ -2,7 +2,7 @@
 
 The goal of the tool is to allow parameterized simulation runs on a spice circuit. It creates graphs, and uses transient analysis (```.TRAN```) of LTSpice.
 
-It is tested on OSX, and should work identically under linux. It is not tested under windows, but it would be easy to adapt.
+It is tested on MacOS, and should work identically under linux. It is not tested under windows, but it would be easy to adapt.
 
 It is capable of creating one or more graphs per job (all in 1 png file), and multiple jobs per config file.
 
@@ -14,7 +14,7 @@ Different time scales or zoomed sections can be shown, each in their own column.
 
 * python3
 * pip packages PyLTSpice, matplotlib (as usual: ```pip install -i requirements.txt```)
-* WINE (the OSX version of LTSPice is incomplete with regards to command line options, linux even has no choice)
+* WINE (the MacOS version of LTSPice is incomplete with regards to command line options, linux even has no choice)
 * ltspice installed (and updated and run at least once manually) under wine
 
 ## Requirements for run
@@ -135,3 +135,7 @@ run
 ![simple](img/simple.png "Simple graph")
 
 ![more complicated](img/more.png "More detailed graph")
+
+# Hints
+
+You can use MacOS's LTSpice to draw and this tool (thus wine) to do the batched simulations. Just don't close MacOS's LTSpice _while_ doing a batch run, as it (by default) will delete the (temporary) .net file that got created by this tool.
