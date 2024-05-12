@@ -132,6 +132,6 @@ run
 
 # Examples of graphs
 
-![simple](img\simple.png "Simple graph")
+![simple](img/simple.png "Simple graph")
 
-![more complicated](img\more.png "More detailed graph")
+![more complicated](img/more.png "More detailed graph")
