@@ -4,7 +4,11 @@ The goal of the tool is to allow parameterized simulation runs on a spice circui
 
 It is tested on MacOS, and should work identically under linux. It is not tested under windows, but it would be easy to adapt.
 
-It is capable of creating one or more graphs per job (all in 1 png file), and multiple jobs per config file. See examples below.
+It is capable of creating one or more graphs per job (all in 1 png file), and multiple jobs per config file. Example:
+
+![simple](img/simple.png "Simple graph")
+
+See more examples below.
 
 Only 1 signal will be shown per graph, but potentially in multiple lines, each one for a separate simulation.
 Multiple output signals can be shown, but they will be each in their own graphs, one row per signal.
@@ -132,9 +136,9 @@ run
 
 # Examples of graphs
 
-![simple](img/simple.png "Simple graph")
-
 ![more complicated](img/more.png "More detailed graph")
+
+![even more complicated](img/moremore.png "Even more detailed graph")
 
 # Hints
 
