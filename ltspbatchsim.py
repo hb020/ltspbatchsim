@@ -8,6 +8,7 @@ import shutil
 import glob
 import json
 import argparse
+import math
 
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
@@ -42,8 +43,9 @@ outdir = "./batchsim/"
 # 100mA   1k2     120
 
 
-def format_axis(ax, size, offset_time_s, duration_time_s, ylabel, jobname):
+def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobname):
     # print(f"size: {size}, offset_time_s: {offset_time_s}, duration_time_s: {duration_time_s}")
+    ax.set_xscale("linear")
     formatter0 = EngFormatter(unit='s')
     ax.xaxis.set_major_formatter(formatter0)
     ax.xaxis.set_tick_params('both')
@@ -79,27 +81,96 @@ def format_axis(ax, size, offset_time_s, duration_time_s, ylabel, jobname):
     ax.legend()    
 
 
-def time2usecs(t: str):
-    if t.endswith("u") or t.endswith("m"):
-        if t[:-1].isdigit():
-            if t.endswith("m"):
-                m = 1000
-            else:
-                m = 1 
-            return m * int(t[:-1])
+def format_axis_ac(ax, is_gain, x_scale, start_freq, end_freq, ylabel, jobname):
+    if x_scale == "lin":
+        ax.set_xscale("linear")
     else:
-        if t.isdigit():
-            return 1000000 * int(t)
-        
-    print(f"ERR: bad time format \"{t}\". I only support integers plus optional u or m. Fractions are not allowed.")
-    return -1        
+        ax.set_xscale("log")
+    formatter0 = EngFormatter(unit='Hz')
+    ax.xaxis.set_major_formatter(formatter0)
+    ax.xaxis.set_tick_params('both')
+    ax.set_xlim(left=start_freq, right=end_freq)
+    if is_gain:    
+        ax.set_ylabel(f"{ylabel} - gain (dB)")
+    else:
+        ax.set_ylabel(f"{ylabel} - phase (deg)")
+    ax.set_xlabel("Frequency")
+    ax.yaxis.set_minor_locator(AutoMinorLocator(10))
+    ax.grid(visible=True, which="both", axis="both")
+    ax.grid(which="minor", axis="both", alpha=0.5)    
+    if jobname:
+        ax.set_title(jobname)
+    ax.legend()    
 
 
-def run_transient(job, showplot=True, model_fname="", defaulttransients=[], defaultlabels=[]):
+def str2float(s: str):
+    if s is None:
+        return math.nan
+    s = s.strip()
+    if len(s) == 0:
+        return math.nan
+    s = s.lower()
+    mult = 1
+    if s.endswith("f"):
+        mult = 1e-15
+        s = s[:-1]
+    elif s.endswith("p"):
+        mult = 1e-12
+        s = s[:-1]        
+    elif s.endswith("n"):
+        mult = 1e-9
+        s = s[:-1]        
+    elif s.endswith("u"):
+        mult = 1e-6
+        s = s[:-1]        
+    elif s.endswith("m"):
+        mult = 1e-3
+        s = s[:-1]        
+    elif s.endswith("k"):
+        mult = 1e3
+        s = s[:-1]        
+    elif s.endswith("meg"):
+        mult = 1e6
+        s = s[:-3]        
+    elif s.endswith("mega"):
+        mult = 1e6
+        s = s[:-4]
+    elif s.endswith("g"):
+        mult = 1e9
+        s = s[:-1]        
+    elif s.endswith("t"):
+        mult = 1e12
+        s = s[:-1]
+    try:
+        r = float(s)
+    except ValueError:
+        return math.nan
+    return r * mult
+
+
+def time2usecs(t: str):
+    f = str2float(t)
+    if math.isnan(f):
+        return -1
+    return round(1000000.0 * f)
+
+
+def freq2Hz(t: str):
+    f = str2float(t)
+    return f
+
+
+def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[]):
     nrcols = 0
     nrrows = 0
     
     jobname = job["name"]
+    ac_analysis = False
+    if "op" in job:
+        if job["op"].lower() == 'ac':
+            ac_analysis = True
+    
+    print(f"Job: {jobname}, {"AC" if ac_analysis else "Transient"} analysis.")         
     
     ylabels = []
     if "ylabel" in job:
@@ -110,52 +181,89 @@ def run_transient(job, showplot=True, model_fname="", defaulttransients=[], defa
         ylabels = defaultlabels
     nrrows = len(ylabels)
     
-    transients = []
-    if "transient" in job:
-        transients.append(job["transient"])
-    if "transients" in job:
-        transients = job["transients"]
-    else:
-        transients = defaulttransients
-        
+    # set up graph columns
     column_definitions = []
-    maxtime_usecs = 0
-    # transient time format is a subset of the spice format for .TRAN: 
-    # "<Tstop>"
-    # "0 <Tstop> Tstart" (=> Tstep must be 0, dTmax is not used)
-    for t in transients:
-        startrecording_usecs = 0
-        endrecording_usecs = 0
-        visible_usecs = 0
-        tparts = [x.strip() for x in t.split(' ')]
-        if len(tparts) == 1:
-            startrecording_usecs = 0
-            endrecording_usecs = time2usecs(tparts[0])
-            visible_usecs = endrecording_usecs
-        elif len(tparts) == 2:
-            startrecording_usecs = time2usecs(tparts[1])
-            endrecording_usecs = time2usecs(tparts[0])
-            visible_usecs = endrecording_usecs - startrecording_usecs
-        elif len(tparts) == 3 and tparts[0] == "0":
-            startrecording_usecs = time2usecs(tparts[2])
-            endrecording_usecs = time2usecs(tparts[1])
-            visible_usecs = endrecording_usecs - startrecording_usecs
+    
+    if ac_analysis:
+        # AC graph setup        
+        ac = ""
+        if "ac" in job:
+            ac = job["ac"]
         else:
-            print(f"ERR: unsupported transient time format \"{t}\".")
-            print("  Format must be either \"<Tstop>\" or \"<Tstop> Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+            ac = defaultac        
+        ac = ac.strip()
+        if len(ac) == 0:
+            print("ERR: You need to specify an AC analysis string via 'ac'.")
             return
         
-        if startrecording_usecs < 0 or endrecording_usecs < 0:
-            # error, will have printed
+        # ac format is the spice format for .AC: 
+        # "<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>"
+        start_freq = math.nan
+        end_freq = math.nan
+        method = ""
+        tparts = [x.strip() for x in ac.split(' ')]
+        if len(tparts) == 4:
+            method = tparts[0].lower()
+            if method in ['oct', 'dec', 'lin']:
+                start_freq = freq2Hz(tparts[2])
+                end_freq = freq2Hz(tparts[3])
+        
+        if math.isnan(start_freq) or math.isnan(end_freq):
+            print(f"ERR: unsupported transient AC analysis format \"{ac}\".")
+            print("  Format must be \"<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>\".")
             return
         
-        column_definitions.append({"name": t, 
-                                   "startrecording_usecs": startrecording_usecs, 
-                                   "endrecording_usecs": endrecording_usecs, 
-                                   "visible_usecs": visible_usecs})
-        if maxtime_usecs < endrecording_usecs:
-            maxtime_usecs = endrecording_usecs
+        # gain and phase in separate columns, it would be too dense otherwise
+        column_definitions.append({"name": "gain", "start_freq": start_freq, "end_freq": end_freq, "method": method})
+        column_definitions.append({"name": "phase", "start_freq": start_freq, "end_freq": end_freq, "method": method})               
+    else:
+        # transient graphs setup
+        transients = []
+        if "transient" in job:
+            transients.append(job["transient"])
+        if "transients" in job:
+            transients = job["transients"]
+        else:
+            transients = defaulttransients
+        
+        maxtime_usecs = 0
+        # transient time format is a subset of the spice format for .TRAN: 
+        # "<Tstop>"
+        # "0 <Tstop> Tstart" (=> Tstep must be 0, dTmax is not used)
+        for t in transients:
+            startrecording_usecs = 0
+            endrecording_usecs = 0
+            visible_usecs = 0
+            tparts = [x.strip() for x in t.split(' ')]
+            if len(tparts) == 1:
+                startrecording_usecs = 0
+                endrecording_usecs = time2usecs(tparts[0])
+                visible_usecs = endrecording_usecs
+            elif len(tparts) == 2:
+                startrecording_usecs = time2usecs(tparts[1])
+                endrecording_usecs = time2usecs(tparts[0])
+                visible_usecs = endrecording_usecs - startrecording_usecs
+            elif len(tparts) == 3 and tparts[0] == "0":
+                startrecording_usecs = time2usecs(tparts[2])
+                endrecording_usecs = time2usecs(tparts[1])
+                visible_usecs = endrecording_usecs - startrecording_usecs
+            else:
+                startrecording_usecs = -1  # signal error
+            
+            if startrecording_usecs < 0 or endrecording_usecs < 0:
+                print(f"ERR: unsupported transient time format \"{t}\".")
+                print("  Format must be either \"<Tstop>\" or \"<Tstop> Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+                return
+            
+            column_definitions.append({"name": t,
+                                       "startrecording_usecs": startrecording_usecs, 
+                                       "endrecording_usecs": endrecording_usecs, 
+                                       "visible_usecs": visible_usecs})
+            if maxtime_usecs < endrecording_usecs:
+                maxtime_usecs = endrecording_usecs
+                
     nrcols = len(column_definitions)
+    # print(column_definitions)
                  
     if nrcols == 0 or nrrows == 0:
         print(f"ERR: no plots defined for {jobname}")
@@ -163,32 +271,34 @@ def run_transient(job, showplot=True, model_fname="", defaulttransients=[], defa
 
     # set the graph width, every column has the same width (as is the easiest with matplot)
     xsize = 10
-    for c in column_definitions:
-        nicenumber = 0
-        t = c["visible_usecs"]  # is integer
-        wantedsize = 10
-        if t < 50:
-            # nice small number of usecs
-            wantedsize = max(10, t / 1.5)
-            nicenumber = t
-        elif t % 1000 == 0:
-            # multiple of msecs
-            t = int(t / 1000)
+    if not ac_analysis:
+        # adapt the width so that I see some detail
+        for c in column_definitions:
+            nicenumber = 0
+            t = c["visible_usecs"]  # is integer
+            wantedsize = 10
             if t < 50:
-                # nice small number of msecs
+                # nice small number of usecs
                 wantedsize = max(10, t / 1.5)
                 nicenumber = t
-            if t % 1000 == 0:
-                # multiple of secs
+            elif t % 1000 == 0:
+                # multiple of msecs
                 t = int(t / 1000)
                 if t < 50:
-                    # nice small number of secs
+                    # nice small number of msecs
                     wantedsize = max(10, t / 1.5)
                     nicenumber = t
-        c["niceformat"] = nicenumber
+                if t % 1000 == 0:
+                    # multiple of secs
+                    t = int(t / 1000)
+                    if t < 50:
+                        # nice small number of secs
+                        wantedsize = max(10, t / 1.5)
+                        nicenumber = t
+            c["niceformat"] = nicenumber
 
-        if wantedsize > xsize:
-            xsize = wantedsize
+            if wantedsize > xsize:
+                xsize = wantedsize
     
     # create the rows and columns in the graph
     # differents ylabels are on rows (y axis of grid)
@@ -203,12 +313,16 @@ def run_transient(job, showplot=True, model_fname="", defaulttransients=[], defa
     # remove old instructions
     netlist.remove_Xinstruction("\\.tran.*")  # is case insensitive
     netlist.remove_Xinstruction("\\.ac.*")  # is case insensitive
-    netlist.add_instruction(f".tran {maxtime_usecs}u")
+    if ac_analysis:
+        netlist.add_instruction(f".ac {ac}")
+    else:
+        netlist.add_instruction(f".tran {maxtime_usecs}u")
         
     for tracename in job["traces"]:
         safe_tracename = tracename.replace(",", "").replace(" ", "_")
         netlistfile = f"{basename}_{safe_tracename}.net"
         rawfile = f"{basename}_{safe_tracename}.raw"
+        processlogfile = f"{basename}_{safe_tracename}_process.log"
         
         for s in ["commondefs", "tracedefs"]:
             if s in job: 
@@ -249,41 +363,62 @@ def run_transient(job, showplot=True, model_fname="", defaulttransients=[], defa
         
         netlist.save_netlist(netlistfile)
         
-        print(f"** START **  simulation of job '{tracename}': {netlistfile}")
+        print(f"Job: {jobname}: Trace '{tracename}'")
         spice_exe = ['wine', ltspice_path, '-alt', '-Run', '-b']
-        subprocess.run(spice_exe + [netlistfile])
-        print(f"** END **  simulation of job '{tracename}': {netlistfile}")
+        with open(processlogfile, "w") as outfile:
+            subprocess.run(spice_exe + [netlistfile], stdout=outfile, stderr=subprocess.STDOUT)
         
         LTR = RawRead(rawfile)
+        # LTR.to_excel("out.xlsx")
         for row in range(0, nrrows):
             y = LTR.get_trace(ylabels[row])
-            x = LTR.get_trace('time')  # Gets the time axis
+            if ac_analysis:
+                xlabel = "frequency"
+            else:
+                xlabel = "time"
+            x = LTR.get_trace(xlabel)
             steps = LTR.get_steps()
             for step in range(len(steps)):
                 t = x.get_wave(step)
                 v = y.get_wave(step)
                 for col in range(0, nrcols):
                     c = column_definitions[col]
-                    startrecording = c["startrecording_usecs"] / 1000000.0
-                    endrecording = c["endrecording_usecs"] / 1000000.0
-                    if t.max() > startrecording and t.min() < endrecording:
-                        ax[row][col].plot(t - startrecording, v, label=tracename)
-                
+                    if ac_analysis:
+                        if c["name"] == "gain":
+                            ax[row][col].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename)
+                        else:
+                            ax[row][col].plot(np.real(t), np.degrees(np.angle(v)), label=tracename)                            
+                    else:
+                        startrecording = c["startrecording_usecs"] / 1000000.0
+                        endrecording = c["endrecording_usecs"] / 1000000.0
+                        if t.max() > startrecording and t.min() < endrecording:
+                            ax[row][col].plot(t - startrecording, v, label=tracename)
+    
+    print(f"Job: {jobname}: Creating graph.")
     for row in range(0, nrrows):
         for col in range(0, nrcols):
             if row == 0 and col == 0:
                 title = jobname
             else:
                 title = None
-            c = column_definitions[col]
-            startrecording_s = c["startrecording_usecs"] / 1000000.0
-            visible_s = c["visible_usecs"] / 1000000.0
-            size = c["niceformat"]
-            format_axis(ax[row][col], size, startrecording_s, visible_s, ylabels[row], title)
+            c = column_definitions[col]                
+            if ac_analysis:
+                start_freq = c["start_freq"]
+                end_freq = c["end_freq"]
+                x_scale = c["method"]
+                is_gain = True
+                if c["name"] != "gain":
+                    is_gain = False
+                format_axis_ac(ax[row][col], is_gain, x_scale, start_freq, end_freq, ylabels[row], title)
+            else:
+                startrecording_s = c["startrecording_usecs"] / 1000000.0
+                visible_s = c["visible_usecs"] / 1000000.0
+                size = c["niceformat"]
+                format_axis_transient(ax[row][col], size, startrecording_s, visible_s, ylabels[row], title)
 
     imagefile = f"{basename}.png"
     fig.savefig(fname=imagefile, dpi=300)
-    print(f"The results are in the file {imagefile}\n")
+    print(f"Job: {jobname}: The results are in the file {imagefile}\n")
     if showplot:
         fig.show()
 
@@ -300,12 +435,13 @@ def delfiles(pattern):
             os.remove(p)
 
 
-def cleanup(keep_nets=False, keep_logs=False):
+def cleanup(keep_nets=False, keep_logs=False, keep_raw=False):
     if not keep_nets:
         delfiles("*.net")
     if not keep_logs:
         delfiles("*.log")
-    delfiles("*.raw")
+    if not keep_raw:
+        delfiles("*.raw")
 
 
 def load_config(config_file):
@@ -325,6 +461,7 @@ if __name__ == "__main__":
     parser.add_argument('--outdir', default=outdir, help="Output directory for the graphs, also work directory.")
     parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
+    parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
     
     args = parser.parse_args()
     
@@ -343,9 +480,12 @@ if __name__ == "__main__":
     
     my_jobs = args.job_name
     defaulttransients = []
+    defaultac = ""
     defaultlabels = []
     if "transients" in CONFIG:
         defaulttransients = CONFIG["transients"]
+    if "ac" in CONFIG:
+        defaultac = CONFIG["ac"]
     if "ylabels" in CONFIG:
         defaultlabels = CONFIG["ylabels"]
         
@@ -357,7 +497,7 @@ if __name__ == "__main__":
     if model_fname.lower().endswith(".asc"):
         print(f"Extracting the netlist from the schema \"{model_fname}\"")
         spice_exe = ['wine', ltspice_path, '-netlist', ]
-        subprocess.run(spice_exe + [model_fname])
+        subprocess.run(spice_exe + [model_fname], stderr=subprocess.STDOUT)
         model_fname = model_fname[:-4] + ".net"
         if not os.path.isfile(model_fname):
             print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong.")
@@ -370,10 +510,11 @@ if __name__ == "__main__":
             if job["name"] not in my_jobs:
                 print(f"Skipping job '{job["name"]}'.")
                 continue
-        run_transient(job, 
-                      showplot=False, 
-                      model_fname=model_fname,
-                      defaulttransients=defaulttransients,
-                      defaultlabels=defaultlabels
-                      )
-    cleanup(args.keep_nets, args.keep_logs)
+        run_analysis(job, 
+                     showplot=True, 
+                     model_fname=model_fname,
+                     defaultac=defaultac,
+                     defaulttransients=defaulttransients,
+                     defaultlabels=defaultlabels
+                     )
+    cleanup(args.keep_nets, args.keep_logs, args.keep_raw)

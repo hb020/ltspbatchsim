@@ -1,6 +1,6 @@
 # LTSpBatchSim
 
-The goal of the tool is to allow parameterized simulation runs on a spice circuit. It creates graphs, and uses transient analysis (```.TRAN```) of LTSpice.
+The goal of the tool is to allow parameterized simulation runs on a spice circuit. It creates graphs, and uses transient analysis (```.TRAN```) or AC analysis (```.AC```) of LTSpice.
 
 It is tested on MacOS, and should work identically under linux. It is not tested under windows, but it would be easy to adapt.
 
@@ -12,7 +12,8 @@ See more examples below.
 
 Only 1 signal will be shown per graph, but potentially in multiple lines, each one for a separate simulation.
 Multiple output signals can be shown, but they will be each in their own graphs, one row per signal.
-Different time scales or zoomed sections can be shown, each in their own column.
+Each job is either a Transient analysis, either an AC analysis.
+For transient analysis, different time scales or zoomed sections can be shown, each in their own column.
 
 ## Requirements for installation
 
@@ -38,12 +39,15 @@ See the output of ```python3 batchsim.py -h``` for more info.
 ```text
 model: str
 ylabels: [str, ...]
+ac: str
 transients: [str, ...]
 defs: dict(dict)
 run
  |-name: str
+ |-op: str
  |-ylabel: str
  |-ylabels: [str,...]
+ |-ac: str
  |-transient: str
  |-transients: [str,...]
  |-traces: [str,...]
@@ -53,9 +57,13 @@ run
 
 * ```model```: the file name of the circuit.
 * ```ylabels```: the signals to be shown Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the jobs.
-* ```transients```: the values for the time sections. These are the default time sections for all jobs, and can be overriden in the jobs. 
+* ```ac```: the default values for the AC analysis of all AC analysis jobs. Can be overriden in the jobs. Format is identical to the spice ```.ac``` op command. Ignored when Transient analysis is requested by the job.
+
+    Exemple: ```"dec 200 5 10e6"```
+
+* ```transients```: the default values for the time sections of all transient analysis jobs. Can be overriden in the jobs. Ignored when AC analysis is requested by the job.
   
-    Format: ```[str, ...]```, where each ```str```, inspired by the spice ```.tran``` op command: "Tstop" or "Tstop Tstart" or "0 Tstop Tstart" (=> Tstep must be 0 if specified, dTmax is not used). Only integer times are allowed, expressed in µsecs, msecs or full seconds.
+    Format: ```[str, ...]```, where each ```str```, inspired by the spice ```.tran``` op command: "Tstop" or "Tstop Tstart" or "0 Tstop Tstart" (=> Tstep must be 0 if specified, dTmax is not used). Times shorter than µsecs are not supported.
   
     Example: ```["10u", "1010u 1000u", "2011u 2001u", "3011u 3001u", "4m"]``` , creating a large graph with the following sub-graphs in columns:
   * 10 µsecs wide, starting at T0
@@ -87,8 +95,10 @@ run
 
 * ```run```: the definition of the jobs
 * ```run.name```: the name of the job
+* ```run.op```: the type of analysis. Must be either 'ac' or 'transient'. If absent or non valid: 'transient'.
 * ```run.ylabel```: Will override ```ylabels``` above. Used when only 1 value is needed.
 * ```run.ylabels```: Will override ```ylabels``` above.
+* ```run.ac```: Will override ```ac``` above.
 * ```run.transient```: Will override ```transients``` above. Used when only 1 value is needed.
 * ```run.transients```: Will override ```transients``` above.
 * ```run.traces```: List of the individual traces inside a graph. These names are not only printed, but also used to set component values. See ```run.tracedefs```.
@@ -139,6 +149,8 @@ run
 ![more complicated](img/more.png "More detailed graph")
 
 ![even more complicated](img/moremore.png "Even more detailed graph")
+
+![bode](img/bode1.png "Bode plot")
 
 # Hints
 
