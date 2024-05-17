@@ -300,9 +300,11 @@ def delfiles(pattern):
             os.remove(p)
 
 
-def cleanup():
-    delfiles("*.net")
-    delfiles("*.log")
+def cleanup(keep_nets=False, keep_logs=False):
+    if not keep_nets:
+        delfiles("*.net")
+    if not keep_logs:
+        delfiles("*.log")
     delfiles("*.raw")
 
 
@@ -321,6 +323,8 @@ if __name__ == "__main__":
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run.") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help="Path of ltspice.")
     parser.add_argument('--outdir', default=outdir, help="Output directory for the graphs, also work directory.")
+    parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
+    parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     
     args = parser.parse_args()
     
@@ -372,4 +376,4 @@ if __name__ == "__main__":
                       defaulttransients=defaulttransients,
                       defaultlabels=defaultlabels
                       )
-    cleanup()
+    cleanup(args.keep_nets, args.keep_logs)
