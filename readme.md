@@ -14,6 +14,7 @@ Only 1 signal will be shown per graph, but potentially in multiple lines, each o
 Multiple output signals can be shown, but they will be each in their own graphs, one row per signal.
 Each job is either a Transient analysis, either an AC analysis.
 For transient analysis, different time scales or zoomed sections can be shown, each in their own column.
+For AC analysis, gain and phase each have their own column, or be merged in the same column.
 
 ## Requirements for installation
 
@@ -33,6 +34,26 @@ Example:
 ```python3 ltspbatchsim.py opamptest.json```
 
 See the output of ```python3 batchsim.py -h``` for more info.
+
+```text
+usage: ltspbatchsim.py [-h] [--ltspicepath LTSPICEPATH] [--outdir OUTDIR] [--keep_nets] [--keep_logs] [--keep_raw] [--single_bode] config_file [job_name ...]
+
+Runs one or more LTSpice simulations based on config from a json file. Will use LTSpice installed under wine.
+
+positional arguments:
+  config_file           Name of the config json file. Default: 'ltspbatchsim.json'
+  job_name              Name of the job(s). If left empty: all jobs will be run.
+
+options:
+  -h, --help            show this help message and exit
+  --ltspicepath LTSPICEPATH
+                        Path of ltspice. Default: '/Users/me/.wine/drive_c/Users/me/AppData/Local/Programs/ADI/LTspice/LTspice.exe'
+  --outdir OUTDIR       Output directory for the graphs, also work directory. Default: './batchsim/'
+  --keep_nets           After the runs, keep the netlists.
+  --keep_logs           After the runs, keep the spice run logs.
+  --keep_raw            After the runs, keep the .raw files.
+  --single_bode         Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.
+```
 
 # the JSON config file format
 
@@ -150,7 +171,9 @@ run
 
 ![even more complicated](img/moremore.png "Even more detailed graph")
 
-![bode](img/bode1.png "Bode plot")
+![bode 2](img/bode2.png "Bode plot in 2 graphs")
+
+![bode 1](img/bode1.png "Bode plot in 1 graph")
 
 # Hints
 

@@ -1,7 +1,7 @@
 import numpy as np
 from PyLTSpice import SpiceEditor, RawRead
 from matplotlib import pyplot as plt
-from matplotlib.ticker import EngFormatter, AutoMinorLocator
+from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
 import os
 import subprocess
 import shutil
@@ -16,7 +16,7 @@ import math
 # This does NOT use the MacOSX LTSpice, as the command line parameters are incomplete. It uses wine.
 # I do NOT use any PyLTSpice runner, as it has problems with long command lines.
 
-default_config_file = "batchsim.json"
+default_config_file = "ltspbatchsim.json"
 ltspice_path = os.path.expanduser(f"~/.wine/drive_c{os.path.expanduser('~')}/AppData/Local/Programs/ADI/LTspice/LTspice.exe")
 CONFIG = {}
 
@@ -81,26 +81,40 @@ def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobn
     ax.legend()    
 
 
-def format_axis_ac(ax, is_gain, x_scale, start_freq, end_freq, ylabel, jobname):
-    if x_scale == "lin":
-        ax.set_xscale("linear")
+def format_axis_ac(ax, is_gain, single_bode, x_scale, start_freq, end_freq, ylabel, jobname):
+    if is_gain or not single_bode:
+        if x_scale == "lin":
+            ax.set_xscale("linear")
+        else:
+            ax.set_xscale("log")
+        formatter0 = EngFormatter(unit='Hz')
+        ax.xaxis.set_major_formatter(formatter0)
+        ax.xaxis.set_tick_params('both')
+        ax.set_xlim(left=start_freq, right=end_freq)
+        ax.set_xlabel("Frequency")
+    
+    ext = ""
+    if is_gain:
+        ext = "gain"
+        unit = "%g dB"
     else:
-        ax.set_xscale("log")
-    formatter0 = EngFormatter(unit='Hz')
-    ax.xaxis.set_major_formatter(formatter0)
-    ax.xaxis.set_tick_params('both')
-    ax.set_xlim(left=start_freq, right=end_freq)
-    if is_gain:    
-        ax.set_ylabel(f"{ylabel} - gain (dB)")
-    else:
-        ax.set_ylabel(f"{ylabel} - phase (deg)")
-    ax.set_xlabel("Frequency")
+        unit = "%g °"
+        ext = "phase"
+        if single_bode:
+            ext = ext + " (dashed)"
+            
+    ax.set_ylabel(f"{ylabel} - {ext}")
+    formatter1 = FormatStrFormatter(unit)
+    ax.yaxis.set_major_formatter(formatter1)
+
     ax.yaxis.set_minor_locator(AutoMinorLocator(10))
-    ax.grid(visible=True, which="both", axis="both")
-    ax.grid(which="minor", axis="both", alpha=0.5)    
-    if jobname:
-        ax.set_title(jobname)
-    ax.legend()    
+    
+    if is_gain or not single_bode:
+        ax.grid(visible=True, which="both", axis="both")
+        ax.grid(which="minor", axis="both", alpha=0.5)    
+        if jobname:
+            ax.set_title(jobname)
+        ax.legend()    
 
 
 def str2float(s: str):
@@ -160,7 +174,7 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[]):
+def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False):
     nrcols = 0
     nrrows = 0
     
@@ -215,7 +229,8 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         
         # gain and phase in separate columns, it would be too dense otherwise
         column_definitions.append({"name": "gain", "start_freq": start_freq, "end_freq": end_freq, "method": method})
-        column_definitions.append({"name": "phase", "start_freq": start_freq, "end_freq": end_freq, "method": method})               
+        if not single_bode:
+            column_definitions.append({"name": "phase", "start_freq": start_freq, "end_freq": end_freq, "method": method})
     else:
         # transient graphs setup
         transients = []
@@ -303,8 +318,16 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     # create the rows and columns in the graph
     # differents ylabels are on rows (y axis of grid)
     # time graphs are in columns (x axis of grid)
-    fig, ax = plt.subplots(nrrows, nrcols, dpi=150, figsize=(xsize * nrcols, (4.8 * nrrows)), squeeze=False)
+    fig, ax = plt.subplots(nrrows, nrcols, dpi=150, figsize=(xsize * nrcols, (4.8 * nrrows)), squeeze=False)        
     fig.set_layout_engine('tight')
+    if ac_analysis and single_bode:
+        # ax is a numpy.ndarray. And that is messy to incrementally expand
+        axnew = []
+        for row in range(0, nrrows):
+            axnew.append([ax[row][0], ax[row][0].twinx()])  # create a second Axes that shares the same x-axis
+            # do not change column_definitions, as I do not have a second column.
+        # overwrite ax 
+        ax = axnew
 
     # now prepare the spice model
     netlist = SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the .net
@@ -384,10 +407,15 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 for col in range(0, nrcols):
                     c = column_definitions[col]
                     if ac_analysis:
-                        if c["name"] == "gain":
-                            ax[row][col].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename)
-                        else:
-                            ax[row][col].plot(np.real(t), np.degrees(np.angle(v)), label=tracename)                            
+                        # I always have 2 axis, no matter what nrcols says. 
+                        # so skip column 1, and do both at the same time
+                        # this construction prevents extra code in case of single_bode
+                        if col == 0:
+                            ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename)
+                            if single_bode:
+                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle='dashed')
+                            else:
+                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename)   
                     else:
                         startrecording = c["startrecording_usecs"] / 1000000.0
                         endrecording = c["endrecording_usecs"] / 1000000.0
@@ -406,10 +434,12 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 start_freq = c["start_freq"]
                 end_freq = c["end_freq"]
                 x_scale = c["method"]
-                is_gain = True
-                if c["name"] != "gain":
-                    is_gain = False
-                format_axis_ac(ax[row][col], is_gain, x_scale, start_freq, end_freq, ylabels[row], title)
+                # I always have 2 axis, no matter what nrcols says. 
+                # so skip column 1, and do both at the same time
+                # this construction prevents extra code in case of single_bode
+                if col == 0:
+                    format_axis_ac(ax[row][0], True, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
+                    format_axis_ac(ax[row][1], False, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
             else:
                 startrecording_s = c["startrecording_usecs"] / 1000000.0
                 visible_s = c["visible_usecs"] / 1000000.0
@@ -453,15 +483,15 @@ def load_config(config_file):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
-                                     "Will use LTSpice installed under wine.",
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('config_file', default=default_config_file, help="Name of the config json file.") 
+                                     "Will use LTSpice installed under wine.")
+    parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run.") 
-    parser.add_argument('--ltspicepath', default=ltspice_path, help="Path of ltspice.")
-    parser.add_argument('--outdir', default=outdir, help="Output directory for the graphs, also work directory.")
+    parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
+    parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
     parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
+    parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.")
     
     args = parser.parse_args()
     
@@ -515,6 +545,7 @@ if __name__ == "__main__":
                      model_fname=model_fname,
                      defaultac=defaultac,
                      defaulttransients=defaulttransients,
-                     defaultlabels=defaultlabels
+                     defaultlabels=defaultlabels,
+                     single_bode=args.single_bode
                      )
     cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
