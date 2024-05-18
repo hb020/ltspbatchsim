@@ -167,6 +167,8 @@ run
 
 # Examples of graphs
 
+(The view below uses adaptive scaling, download to see the full resolution)
+
 ![more complicated](img/more.png "More detailed graph")
 
 ![even more complicated](img/moremore.png "Even more detailed graph")
