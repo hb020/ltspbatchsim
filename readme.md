@@ -33,7 +33,7 @@ For AC analysis, gain and phase each have their own column, or be merged in the 
 Example:
 ```python3 ltspbatchsim.py opamptest.json```
 
-See the output of ```python3 batchsim.py -h``` for more info.
+See the output of ```python3 ltspbatchsim.py -h``` for more info.
 
 ```text
 usage: ltspbatchsim.py [-h] [--ltspicepath LTSPICEPATH] [--outdir OUTDIR] [--keep_nets] [--keep_logs] [--keep_raw] [--single_bode] config_file [job_name ...]
