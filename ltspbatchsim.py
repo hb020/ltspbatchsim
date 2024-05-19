@@ -1,5 +1,5 @@
 import numpy as np
-from PyLTSpice import SpiceEditor, RawRead
+from PyLTSpice import SpiceEditor, RawRead, AscEditor
 from matplotlib import pyplot as plt
 from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
 import os
@@ -9,7 +9,7 @@ import glob
 import json
 import argparse
 import math
-
+from pathlib import Path
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
@@ -43,6 +43,77 @@ outdir = "./batchsim/"
 # 100mA   1k2     120
 
 
+def check_and_correct_encoding(asc_file: str):
+    """Needed with MacOS's LTSpice, as it writes .asc files with incomplete 
+    encoding (utf-16-le without BOM). This function checks if the file has that
+    encoding, and if so, rewrites the file with a 'normal' encoding.
+
+    Args:
+        asc_file (str): File name of the .asc file
+
+    Raises:
+        FileNotFoundError: When the file is not found
+        NotImplementedError: When the encoding cannot be determined
+    """
+    
+    # test if file exists.
+    asc_file_path = Path(asc_file)
+    if not asc_file_path.exists():
+        raise FileNotFoundError(f"File {asc_file} not found")
+    
+    # test if format detection works.
+    try:
+        with open(asc_file_path, 'r') as asc_file:
+            line = asc_file.readline().lower()
+            if line.startswith("version"):
+                return
+    except:
+        pass
+    
+    # NOT. so test in utf16-LE
+    asc_file = open(asc_file_path, 'r', encoding='utf-16-le')
+    line = asc_file.readline().lower()
+    if line.startswith("version"):
+        # Yes, that works. So rewrite the file
+        # rewind to the start, read everything and close
+        asc_file.seek(0)
+        content = asc_file.read()
+        asc_file.close()
+        # now write the same content back to the file (overwriting the content)
+        with open(asc_file_path, 'w') as asc_file:
+            asc_file.write(content)
+        return
+    else:
+        asc_file.close()
+        raise NotImplementedError(f"Format not supported for ASC file {asc_file}")
+
+
+# temporary filenames (actually, the base names)
+tmp_filenames = []
+
+
+def delfiles(pattern):
+    for p in glob.glob(pattern, recursive=False):
+        if os.path.isfile(p):
+            os.remove(p)
+
+
+def tmp_filenames_register(fname: str):
+    global tmp_filenames
+    tmp_filenames.append(fname)
+    
+
+def tmp_filenames_cleanup(keep_nets=False, keep_logs=False, keep_raw=False):
+    for fname in tmp_filenames:
+        if not keep_nets:
+            delfiles(f"{fname}*.net")
+        if not keep_logs:
+            delfiles(f"{fname}*.log")
+        if not keep_raw:
+            delfiles(f"{fname}*.raw")
+    
+    
+# format the graph axis
 def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobname):
     # print(f"size: {size}, offset_time_s: {offset_time_s}, duration_time_s: {duration_time_s}")
     ax.set_xscale("linear")
@@ -174,7 +245,7 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False):
+def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False, use_asc=False):
     nrcols = 0
     nrrows = 0
     
@@ -330,12 +401,17 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         ax = axnew
 
     # now prepare the spice model
-    netlist = SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the .net
+    if use_asc:
+        check_and_correct_encoding(f"./{model_fname}")
+        netlist = AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
+    else:
+        netlist = SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
 
     basename = f"{outdir}{jobname}".replace(' ', '_')
+    tmp_filenames_register(basename)
     # remove old instructions
-    netlist.remove_Xinstruction("\\.tran.*")  # is case insensitive
-    netlist.remove_Xinstruction("\\.ac.*")  # is case insensitive
+    netlist.remove_Xinstruction(".*\\.tran.*")  # is case insensitive
+    netlist.remove_Xinstruction(".*\\.ac.*")  # is case insensitive
     if ac_analysis:
         netlist.add_instruction(f".ac {ac}")
     else:
@@ -343,7 +419,10 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         
     for tracename in job["traces"]:
         safe_tracename = tracename.replace(",", "").replace(" ", "_")
-        netlistfile = f"{basename}_{safe_tracename}.net"
+        if use_asc:
+            netlistfile = f"{basename}_{safe_tracename}.asc"
+        else:
+            netlistfile = f"{basename}_{safe_tracename}.net"
         rawfile = f"{basename}_{safe_tracename}.raw"
         processlogfile = f"{basename}_{safe_tracename}_process.log"
         
@@ -457,26 +536,11 @@ def prepare():
     for cf in additional_files:
         for f in glob.glob(cf):
             shutil.copyfile(f"./{f}", f"{outdir}{f}")
-        
-
-def delfiles(pattern):
-    for p in glob.glob(f"{outdir}{pattern}", recursive=False):
-        if os.path.isfile(p):
-            os.remove(p)
-
-
-def cleanup(keep_nets=False, keep_logs=False, keep_raw=False):
-    if not keep_nets:
-        delfiles("*.net")
-    if not keep_logs:
-        delfiles("*.log")
-    if not keep_raw:
-        delfiles("*.raw")
 
 
 def load_config(config_file):
     global CONFIG
-    print(f"Using config file {config_file}.")
+    print(f"Using config file \"{config_file}\".")
     f = open(config_file)
     CONFIG = json.load(f)
 
@@ -488,10 +552,13 @@ if __name__ == "__main__":
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run.") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
     parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
+    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. This is somewhat slower, and has various issues (see spicelib issues on github), but can be useful for diving into problems detected with the simulations, as it keeps the .asc files after the simulations.")
     parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
     parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.")
+    
+    # use_asc is not preferred, as PyLTSpice has some bugs in the AscEditor.
     
     args = parser.parse_args()
     
@@ -524,16 +591,22 @@ if __name__ == "__main__":
         print(f"ERR: cannot find model file \"{model_fname}\".")
         exit(1)
         
-    if model_fname.lower().endswith(".asc"):
-        print(f"Extracting the netlist from the schema \"{model_fname}\"")
-        spice_exe = ['wine', ltspice_path, '-netlist', ]
-        subprocess.run(spice_exe + [model_fname], stderr=subprocess.STDOUT)
-        model_fname = model_fname[:-4] + ".net"
-        if not os.path.isfile(model_fname):
-            print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong.")
+    if args.use_asc:
+        if not model_fname.lower().endswith(".asc"):
+            print(f"ERR: you must provide a .asc file as model when you use --use_asc. The name \"{model_fname}\"is invalid.")
             exit(1)
+    else:
+        if model_fname.lower().endswith(".asc"):
+            # convert to .net file
+            print(f"Extracting the netlist from the schema \"{model_fname}\"")
+            spice_exe = ['wine', ltspice_path, '-netlist', ]
+            subprocess.run(spice_exe + [model_fname], stderr=subprocess.STDOUT)
+            model_fname = model_fname[:-4] + ".net"
+            if not os.path.isfile(model_fname):
+                print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong.")
+                exit(1)
 
-    print(f"\nRunning all the jobs, using the netlist \"{model_fname}\".")
+    print(f"\nRunning simulations on all the jobs, using the netlist \"{model_fname}\".")
             
     for job in CONFIG["run"]:
         if len(my_jobs) > 0:
@@ -546,6 +619,7 @@ if __name__ == "__main__":
                      defaultac=defaultac,
                      defaulttransients=defaulttransients,
                      defaultlabels=defaultlabels,
-                     single_bode=args.single_bode
+                     single_bode=args.single_bode,
+                     use_asc=args.use_asc
                      )
-    cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
+    tmp_filenames_cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
