@@ -121,7 +121,12 @@ run
 
 * ```run```: the definition of the jobs
 * ```run.name```: the name of the job
-* ```run.op```: the type of analysis. Set to 'ac' for AC analysis. If absent, or any other value, a transient analysis is performed. When using 'ac', be sure to designate a signal source, and to define the signal level. Example: ```"V3": "0 AC 1"```
+* ```run.op```: the type of analysis. Set to 'ac[N]' for AC analysis.
+  * 'ac' for AC analysis bode plot creation according to the ```--single_bode``` command line setting
+  * 'ac1' for AC analysis bode plot in a single graph
+  * 'ac2' for a bode plot in separate gain and phase graphs
+  * If absent, or any other value, a transient analysis is performed. 
+  * When using 'ac', be sure to designate a signal source, and to define the signal level. Example: ```"V3": "0 AC 1"```
 * ```run.ylabel```: Will override root level ```ylabels``` mentioned above. Used when only 1 value is needed.
 * ```run.ylabels```: Will override root level ```ylabels``` mentioned above.
 * ```run.ac```: Will override root level ```ac``` mentioned above.
@@ -129,7 +134,7 @@ run
 * ```run.transients```: Will override root level ```transients``` mentioned above.
 * ```run.traces```: List of the individual traces inside a graph. These names are not only printed, but also used to set component values. See ```run.tracedefs```.
 * ```run.commondefs```: component value settings for all traces in the graph. Can be a ```str```, in which case it refers to a deinition in the ```defs``` section at the root of the json file. If it is a ```dict```, it is a key/value list of component names and values.
-* ```run.tracedefs```: templatized component value settings for all traces in the graph. Is like ```commondefs```, but accepts variables that are derived from ```traces```. If ```{name}``` is specified in a value in ```tracedefs```, it will be substituted by the name of the trace. If ```{nameN}``` is specified in a value in ```tracedefs```, it will be substituted by the Nth part of the name of the trace, split by comma or space.
+* ```run.tracedefs```: templatized component value settings for all traces in the graph. Is like ```commondefs```, but also accepts variables that are derived from ```traces```. If ```{name}``` is specified in a value in ```tracedefs```, it will be substituted by the name of the trace. If ```{nameN}``` is specified in a value in ```tracedefs```, it will be substituted by the Nth part of the name of the trace, split by comma or space.
 
     Examples:
 

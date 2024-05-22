@@ -252,8 +252,13 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     jobname = job["name"]
     ac_analysis = False
     if "op" in job:
-        if job["op"].lower() == 'ac':
+        op = job["op"].lower()
+        if op.startswith('ac'):
             ac_analysis = True
+            if op == 'ac1':
+                single_bode = True
+            if op == 'ac2':
+                single_bode = False
     
     print(f"Job: {jobname}, {"AC" if ac_analysis else "Transient"} analysis.")         
     
