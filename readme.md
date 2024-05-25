@@ -37,6 +37,7 @@ See the output of ```python3 ltspbatchsim.py -h``` for more info.
 
 ```text
 usage: ltspbatchsim.py [-h] [--ltspicepath LTSPICEPATH] [--outdir OUTDIR] [--use_asc] [--keep_nets] [--keep_logs] [--keep_raw] [--single_bode]
+                       [--dense]
                        config_file [job_name ...]
 
 Runs one or more LTSpice simulations based on config from a json file. Will use LTSpice installed under wine.
@@ -48,16 +49,16 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --ltspicepath LTSPICEPATH
-                        Path of ltspice. Default: 
-                        '/Users/hboot/.wine/drive_c/Users/hboot/AppData/Local/Programs/ADI/LTspice/LTspice.exe'
+                        Path of ltspice. Default: '/Users/me/.wine/drive_c/Users/me/AppData/Local/Programs/ADI/LTspice/LTspice.exe'
   --outdir OUTDIR       Output directory for the graphs, also work directory. Default: './batchsim/'
-  --use_asc             Run the simulations as usual, but do that using .asc files. This is somewhat slower, 
-                        may give issues (see spicelib issues on github), but can be useful for diving into 
-                        problems detected with the simulations, as it keeps the .asc files after the simulations.
+  --use_asc             Run the simulations as usual, but do that using .asc files. This is somewhat slower, and has various issues (see
+                        spicelib issues on github), but can be useful for diving into problems detected with the simulations, as it keeps the
+                        .asc files after the simulations.
   --keep_nets           After the runs, keep the netlists.
   --keep_logs           After the runs, keep the spice run logs.
   --keep_raw            After the runs, keep the .raw files.
   --single_bode         Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.
+  --dense               Use this if the graph is dense. It will dash the lines, making distinction easier. Not used with '--single_bode'
 ```
 
 # the JSON config file format
