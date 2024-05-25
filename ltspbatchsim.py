@@ -441,7 +441,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         if (not dense) or (nrtraces == 1) or (traceidx == 0):
             linestyle = 'solid'
         else:
-            linestyle = (traceidx, (nrtraces, nrtraces))
+            linestyle = (traceidx - 1, (nrtraces - 1, nrtraces - 1))
         traceidx += 1
         
         # get a good trace name
