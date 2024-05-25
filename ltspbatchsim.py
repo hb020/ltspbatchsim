@@ -133,7 +133,7 @@ def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobn
             xlabels[i] = ''
             i += 2
         ax.xaxis.set_ticklabels(xlabels, minor=False)
-    ax.set_ylabel(ylabel)
+
     if offset_time_s == 0:
         ax.set_xlabel("time (s)")
     else:
@@ -145,6 +145,12 @@ def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobn
             else:
                 s = f"{offset_time_s * 1000000:.6g} µs"
         ax.set_xlabel(f"time (s), offset by {s}")
+
+    ax.set_ylabel(ylabel)
+    ax.set_yscale("linear")
+    formatter1 = EngFormatter()
+    ax.yaxis.set_major_formatter(formatter1)    
+
     ax.grid(visible=True, which="both", axis="both")
     ax.grid(which="minor", axis="both", alpha=0.5)
     if jobname:
@@ -233,11 +239,12 @@ def str2float(s: str):
     return r * mult
 
 
-def time2usecs(t: str):
+# will not do smaller than nano seconds
+def time2nsecs(t: str):
     f = str2float(t)
     if math.isnan(f):
         return -1
-    return round(1000000.0 * f)
+    return round(1000000000.0 * f)
 
 
 def freq2Hz(t: str):
@@ -245,7 +252,7 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False, use_asc=False):
+def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False, use_asc=False, dense=False):
     nrcols = 0
     nrrows = 0
     
@@ -317,41 +324,48 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         else:
             transients = defaulttransients
         
-        maxtime_usecs = 0
+        maxtime_nsecs = 0
         # transient time format is a subset of the spice format for .TRAN: 
         # "<Tstop>"
         # "0 <Tstop> Tstart" (=> Tstep must be 0, dTmax is not used)
         for t in transients:
-            startrecording_usecs = 0
-            endrecording_usecs = 0
-            visible_usecs = 0
+            startrecording_nsecs = 0
+            endrecording_nsecs = 0
+            visible_nsecs = 0
             tparts = [x.strip() for x in t.split(' ')]
             if len(tparts) == 1:
-                startrecording_usecs = 0
-                endrecording_usecs = time2usecs(tparts[0])
-                visible_usecs = endrecording_usecs
+                startrecording_nsecs = 0
+                endrecording_nsecs = time2nsecs(tparts[0])
+                visible_nsecs = endrecording_nsecs
             elif len(tparts) == 2:
-                startrecording_usecs = time2usecs(tparts[1])
-                endrecording_usecs = time2usecs(tparts[0])
-                visible_usecs = endrecording_usecs - startrecording_usecs
+                startrecording_nsecs = time2nsecs(tparts[1])
+                endrecording_nsecs = time2nsecs(tparts[0])
+                visible_nsecs = endrecording_nsecs - startrecording_nsecs
             elif len(tparts) == 3 and tparts[0] == "0":
-                startrecording_usecs = time2usecs(tparts[2])
-                endrecording_usecs = time2usecs(tparts[1])
-                visible_usecs = endrecording_usecs - startrecording_usecs
+                startrecording_nsecs = time2nsecs(tparts[2])
+                endrecording_nsecs = time2nsecs(tparts[1])
+                visible_nsecs = endrecording_nsecs - startrecording_nsecs
             else:
-                startrecording_usecs = -1  # signal error
+                startrecording_nsecs = -1  # signal error
             
-            if startrecording_usecs < 0 or endrecording_usecs < 0:
+            if startrecording_nsecs < 0 or endrecording_nsecs < 0:
                 print(f"ERR: unsupported transient time format \"{t}\".")
-                print("  Format must be either \"<Tstop>\" or \"<Tstop> Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+                print("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+                return
+
+            if visible_nsecs <= 0:
+                print(f"ERR: unsupported transient time format \"{t}\", duration time cannot be 0 or negative.")
+                print("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 Tstop Tstart\". (First and last forms are like LTSpice .TRAN)")
                 return
             
             column_definitions.append({"name": t,
-                                       "startrecording_usecs": startrecording_usecs, 
-                                       "endrecording_usecs": endrecording_usecs, 
-                                       "visible_usecs": visible_usecs})
-            if maxtime_usecs < endrecording_usecs:
-                maxtime_usecs = endrecording_usecs
+                                       "startrecording_nsecs": startrecording_nsecs, 
+                                       "endrecording_nsecs": endrecording_nsecs, 
+                                       "visible_nsecs": visible_nsecs})
+            if maxtime_nsecs < endrecording_nsecs:
+                maxtime_nsecs = endrecording_nsecs
+        # add some more, sometimes I get stange effects at the end
+        maxtime_nsecs = int(maxtime_nsecs * 1.1)
                 
     nrcols = len(column_definitions)
     # print(column_definitions)
@@ -366,26 +380,22 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         # adapt the width so that I see some detail
         for c in column_definitions:
             nicenumber = 0
-            t = c["visible_usecs"]  # is integer
+            t = c["visible_nsecs"]  # is integer
             wantedsize = 10
-            if t < 50:
-                # nice small number of usecs
-                wantedsize = max(10, t / 1.5)
-                nicenumber = t
-            elif t % 1000 == 0:
-                # multiple of msecs
-                t = int(t / 1000)
-                if t < 50:
-                    # nice small number of msecs
+            while nicenumber == 0:
+                if t < 40:
+                    # adapt the size a bit
+                    # nice small number 
                     wantedsize = max(10, t / 1.5)
                     nicenumber = t
-                if t % 1000 == 0:
-                    # multiple of secs
-                    t = int(t / 1000)
-                    if t < 50:
-                        # nice small number of secs
-                        wantedsize = max(10, t / 1.5)
-                        nicenumber = t
+                else:
+                    if (t % 10 == 0):
+                        t = int(t / 10)
+                    else:
+                        break
+
+            if nicenumber == 1:
+                nicenumber = 10
             c["niceformat"] = nicenumber
 
             if wantedsize > xsize:
@@ -404,6 +414,8 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
             # do not change column_definitions, as I do not have a second column.
         # overwrite ax 
         ax = axnew
+        # no forced dashing when in single bode, as I already do that.
+        dense = False
 
     # now prepare the spice model
     if use_asc:
@@ -420,9 +432,19 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     if ac_analysis:
         netlist.add_instruction(f".ac {ac}")
     else:
-        netlist.add_instruction(f".tran {maxtime_usecs}u")
-        
+        netlist.add_instruction(f".tran {maxtime_nsecs}n")
+       
+    traceidx = 0
+    nrtraces = len(job["traces"])
     for tracename in job["traces"]:
+        # set line style
+        if (not dense) or (nrtraces == 1) or (traceidx == 0):
+            linestyle = 'solid'
+        else:
+            linestyle = (traceidx, (nrtraces, nrtraces))
+        traceidx += 1
+        
+        # get a good trace name
         safe_tracename = tracename.replace(",", "").replace(" ", "_")
         if use_asc:
             netlistfile = f"{basename}_{safe_tracename}.asc"
@@ -485,6 +507,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 xlabel = "time"
             x = LTR.get_trace(xlabel)
             steps = LTR.get_steps()
+            
             for step in range(len(steps)):
                 t = x.get_wave(step)
                 v = y.get_wave(step)
@@ -495,17 +518,29 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                         # so skip column 1, and do both at the same time
                         # this construction prevents extra code in case of single_bode
                         if col == 0:
-                            ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename)
+                            ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename, linestyle=linestyle)
                             if single_bode:
                                 ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle='dashed')
                             else:
-                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename)   
+                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle=linestyle)   
                     else:
-                        startrecording = c["startrecording_usecs"] / 1000000.0
-                        endrecording = c["endrecording_usecs"] / 1000000.0
-                        if t.max() > startrecording and t.min() < endrecording:
-                            ax[row][col].plot(t - startrecording, v, label=tracename)
-    
+                        startrecording = c["startrecording_nsecs"] / 1000000000.0
+                        endrecording = c["endrecording_nsecs"] / 1000000000.0
+                        startidx = None
+                        endidx = None
+                        for sample in range(len(t)):
+                            if startidx is None:
+                                if t[sample] >= startrecording:
+                                    startidx = max(0, sample - 1)
+                            if endidx is None:
+                                if t[sample] > endrecording:
+                                    endidx = min(len(t), sample + 1)
+                        if startidx is None:
+                            startidx = 0
+                        if endidx is None:
+                            endidx = len(t)
+                        ax[row][col].plot(t[startidx:endidx] - startrecording, v[startidx:endidx], label=tracename, linestyle=linestyle)
+
     print(f"Job: {jobname}: Creating graph.")
     for row in range(0, nrrows):
         for col in range(0, nrcols):
@@ -525,8 +560,8 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                     format_axis_ac(ax[row][0], True, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
                     format_axis_ac(ax[row][1], False, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
             else:
-                startrecording_s = c["startrecording_usecs"] / 1000000.0
-                visible_s = c["visible_usecs"] / 1000000.0
+                startrecording_s = c["startrecording_nsecs"] / 1000000000.0
+                visible_s = c["visible_nsecs"] / 1000000000.0
                 size = c["niceformat"]
                 format_axis_transient(ax[row][col], size, startrecording_s, visible_s, ylabels[row], title)
 
@@ -562,6 +597,7 @@ if __name__ == "__main__":
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
     parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.")
+    parser.add_argument('--dense', default=False, action='store_true', help="Use this if the graph is dense. It will dash the lines, making distinction easier. Not used with '--single_bode'")
     
     # use_asc is not preferred, as PyLTSpice has some bugs in the AscEditor.
     
@@ -625,6 +661,7 @@ if __name__ == "__main__":
                      defaulttransients=defaulttransients,
                      defaultlabels=defaultlabels,
                      single_bode=args.single_bode,
-                     use_asc=args.use_asc
+                     use_asc=args.use_asc,
+                     dense=args.dense 
                      )
     tmp_filenames_cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
