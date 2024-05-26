@@ -332,7 +332,15 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
             startrecording_nsecs = 0
             endrecording_nsecs = 0
             visible_nsecs = 0
-            tparts = [x.strip() for x in t.split(' ')]
+            # get the "dense" designator, and strip off if present
+            t_dense = False
+            t = t.lower().strip()
+            if t.endswith(" d"):
+                t_dense = True
+                t = t[:-2]
+            # strip the string in sections, take out repeated spaces
+            tparts = [x.strip() for x in t.split(' ') if x]
+            # interpret the numerical parts
             if len(tparts) == 1:
                 startrecording_nsecs = 0
                 endrecording_nsecs = time2nsecs(tparts[0])
@@ -361,7 +369,8 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
             column_definitions.append({"name": t,
                                        "startrecording_nsecs": startrecording_nsecs, 
                                        "endrecording_nsecs": endrecording_nsecs, 
-                                       "visible_nsecs": visible_nsecs})
+                                       "visible_nsecs": visible_nsecs,
+                                       "dense": t_dense})
             if maxtime_nsecs < endrecording_nsecs:
                 maxtime_nsecs = endrecording_nsecs
         # add some more, sometimes I get stange effects at the end
@@ -437,11 +446,11 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     traceidx = 0
     nrtraces = len(job["traces"])
     for tracename in job["traces"]:
-        # set line style
-        if (not dense) or (nrtraces == 1) or (traceidx == 0):
-            linestyle = 'solid'
+        # set "dense" line style. Decide later on if it you take it or not 
+        if (nrtraces == 1) or (traceidx == 0):
+            dense_linestyle = 'solid'
         else:
-            linestyle = (traceidx - 1, (nrtraces - 1, nrtraces - 1))
+            dense_linestyle = (traceidx - 1, (nrtraces - 1, nrtraces - 1))
         traceidx += 1
         
         # get a good trace name
@@ -513,6 +522,14 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 v = y.get_wave(step)
                 for col in range(0, nrcols):
                     c = column_definitions[col]
+                    t_dense = dense
+                    if ("dense" in c) and c["dense"]:
+                        t_dense = True
+                    if t_dense:
+                        linestyle = dense_linestyle
+                    else:
+                        linestyle = 'solid'
+
                     if ac_analysis:
                         # I always have 2 axis, no matter what nrcols says. 
                         # so skip column 1, and do both at the same time

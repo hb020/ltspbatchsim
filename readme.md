@@ -90,14 +90,14 @@ run
 
 * ```transients```: the default values for the time sections of all transient analysis jobs. Can be overriden in the jobs. Ignored when AC analysis is requested by the job.
   
-    Format: ```[str, ...]```, where each ```str```, inspired by the spice ```.tran``` op command: "Tstop" or "Tstop Tstart" or "0 Tstop Tstart" (=> Tstep must be 0 if specified, dTmax is not used). Times shorter than µsecs are not supported.
+    Format: ```[str, ...]```, where each ```str```, inspired by the spice ```.tran``` op command: "Tstop" or "Tstop Tstart" or "0 Tstop Tstart" (=> Tstep must be 0 if specified, dTmax is not used). Additionally, a 'd' can be added at the end designating that this a dense graph, see '--dense'.
   
-    Example: ```["10u", "1010u 1000u", "2011u 2001u", "3011u 3001u", "4m"]``` , creating a large graph with the following sub-graphs in columns:
+    Example: ```["10u", "1010u 1000u", "2011u 2001u", "3011u 3001u", "4m d"]``` , creating a large graph with the following sub-graphs in columns:
   * 10 µsecs wide, starting at T0
   * 10 µsecs wide, starting at 1 msecs
   * 10 µsecs wide, starting at 2.001 msecs
   * 10 µsecs wide, starting at 3.001 msecs
-  * 4 msecs wide, starting at T0
+  * 4 msecs wide, starting at T0, with dashed lines (to better differentiate them)
 * ```defs```: a set of common component value definitions, to be referred to by the jobs and the traces
 
     Example:
