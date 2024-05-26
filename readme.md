@@ -69,9 +69,11 @@ ylabels: [str, ...]
 ac: str
 transients: [str, ...]
 defs: dict(dict)
+alt: int|bool
 run
  |-name: str
  |-op: str
+ |-alt: int|bool
  |-ylabel: str
  |-ylabels: [str,...]
  |-ac: str
@@ -120,6 +122,7 @@ run
     }
 ```
 
+* ```alt```: (true|false|1|0) Determine the use of the normal solver or the alternate solver. This is the default value. Can be overriden in the jobs.
 * ```run```: the definition of the jobs
 * ```run.name```: the name of the job
 * ```run.op```: the type of analysis. Set to 'ac[N]' for AC analysis.
@@ -128,6 +131,7 @@ run
   * 'ac2' for a bode plot in separate gain and phase graphs
   * If absent, or any other value, a transient analysis is performed. 
   * When using 'ac', be sure to designate a signal source, and to define the signal level. Example: ```"V3": "0 AC 1"```
+* ```run.alt```: Will override root level ```alt``` mentioned above.
 * ```run.ylabel```: Will override root level ```ylabels``` mentioned above. Used when only 1 value is needed.
 * ```run.ylabels```: Will override root level ```ylabels``` mentioned above.
 * ```run.ac```: Will override root level ```ac``` mentioned above.

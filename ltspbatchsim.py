@@ -24,23 +24,7 @@ additional_files = ["*.lib", "*.LIB", "*.asy", "*.ASY"]
 
 outdir = "./batchsim/"
 
-# djerickson:
-# Irange  RIsense  C5
-# 1uA     5M      100p
-# 10uA    560k    370p
-# 100uA   50k     370p
-# 1mA     5k      370p
-# 10mA    500     100p
-# 100mA   50      100p (0.5W)
-
-# Load,   120V  12V   
-# Irange  Rload   Rload (max)
-# 1uA     120M    12M
-# 10uA    12M     1M2
-# 100uA   1M2     120k
-# 1mA     120k    12k
-# 10mA    12k     1k2
-# 100mA   1k2     120
+LOG_SUBSTITUTIONS = False
 
 
 def check_and_correct_encoding(asc_file: str):
@@ -252,7 +236,8 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], single_bode=False, use_asc=False, dense=False):
+def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], 
+                 single_bode=False, use_asc=False, dense=False, defaultaltsolver=False):
     nrcols = 0
     nrrows = 0
     
@@ -266,6 +251,10 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 single_bode = True
             if op == 'ac2':
                 single_bode = False
+    
+    alt_solver = defaultaltsolver
+    if "alt" in job:
+        alt_solver = job["alt"]
     
     print(f"Job: {jobname}, {"AC" if ac_analysis else "Transient"} analysis.")         
     
@@ -479,7 +468,9 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                                     for p in tracename_parts:
                                         kv = kv.replace(f"{{name{i}}}", p)
                                         i += 1
-                                netlist.set_component_value(kk, kv)                                
+                                if LOG_SUBSTITUTIONS:
+                                    print(f"set_component_value({kk}:{kv})")                                
+                                netlist.set_component_value(kk, kv)
                         else:
                             if "{name}" in k:
                                 k = k.replace("{name}", tracename)
@@ -490,21 +481,32 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                                     k = k.replace(f"{{name{i}}}", p)
                                     i += 1
                             d = CONFIG["defs"][k]
+                            if LOG_SUBSTITUTIONS:
+                                print(f"set_component_values({d})")                                                            
                             netlist.set_component_values(**d)
                     else:
                         if isinstance(k, dict):
                             for kk, kv in k.items():
+                                if LOG_SUBSTITUTIONS:
+                                    print(f"set_component_value({kk}:{kv})")                                
                                 netlist.set_component_value(kk, kv)
                         else:                        
                             d = CONFIG["defs"][k]
-                            netlist.set_component_values(**d)                        
+                            if LOG_SUBSTITUTIONS:
+                                print(f"set_component_values({d})")                                                 
+                            netlist.set_component_values(**d)   
         
         netlist.save_netlist(netlistfile)
         
         print(f"Job: {jobname}: Trace '{tracename}'")
-        spice_exe = ['wine', ltspice_path, '-alt', '-Run', '-b']
+        spice_exe = ['wine', ltspice_path]
+        if alt_solver:
+            spice_exe.append('-alt')
+        else:
+            spice_exe.append('-norm')
+        spice_exe.extend(['-Run', '-b', netlistfile])
         with open(processlogfile, "w") as outfile:
-            subprocess.run(spice_exe + [netlistfile], stdout=outfile, stderr=subprocess.STDOUT)
+            subprocess.run(spice_exe, stdout=outfile, stderr=subprocess.STDOUT)
         
         LTR = RawRead(rawfile)
         # LTR.to_excel("out.xlsx")
@@ -637,12 +639,15 @@ if __name__ == "__main__":
     defaulttransients = []
     defaultac = ""
     defaultlabels = []
+    defaultaltsolver = False
     if "transients" in CONFIG:
         defaulttransients = CONFIG["transients"]
     if "ac" in CONFIG:
         defaultac = CONFIG["ac"]
     if "ylabels" in CONFIG:
         defaultlabels = CONFIG["ylabels"]
+    if "alt" in CONFIG:
+        defaultaltsolver = CONFIG["alt"]
         
     model_fname = CONFIG["model"]
     if not os.path.isfile(model_fname):
@@ -679,6 +684,7 @@ if __name__ == "__main__":
                      defaultlabels=defaultlabels,
                      single_bode=args.single_bode,
                      use_asc=args.use_asc,
-                     dense=args.dense 
+                     dense=args.dense,
+                     defaultaltsolver=defaultaltsolver
                      )
     tmp_filenames_cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
