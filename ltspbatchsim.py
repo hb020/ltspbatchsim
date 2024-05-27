@@ -10,6 +10,7 @@ import json
 import argparse
 import math
 from pathlib import Path
+import fnmatch
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
@@ -613,7 +614,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
                                      "Will use LTSpice installed under wine.")
     parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
-    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run.") 
+    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", which will be passed on to this program as \"test_OPA189*\".") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
     parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
     parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. This is somewhat slower, and has various issues (see spicelib issues on github), but can be useful for diving into problems detected with the simulations, as it keeps the .asc files after the simulations.")
@@ -677,10 +678,24 @@ if __name__ == "__main__":
     print(f"\nRunning simulations on all the jobs, using the netlist \"{model_fname}\".")
             
     for job in CONFIG["run"]:
+        # look if I need to run this job
+        take_me = True
         if len(my_jobs) > 0:
-            if job["name"] not in my_jobs:
-                print(f"Skipping job '{job["name"]}'.")
-                continue
+            take_me = False
+            for j in my_jobs:
+                j = j.lower()
+                if '*' in j or '?' in j:
+                    if fnmatch.fnmatch(job["name"], j):
+                        take_me = True
+                        break                        
+                else:
+                    if job["name"].lower() == j:
+                        take_me = True
+                        break
+                
+        if not take_me:
+            print(f"Skipping job '{job["name"]}'.")
+            continue
         run_analysis(job, 
                      showplot=True, 
                      model_fname=model_fname,
