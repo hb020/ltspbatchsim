@@ -424,18 +424,23 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
 
     basename = f"{outdir}{jobname}".replace(' ', '_')
     tmp_filenames_register(basename)
-    # remove old instructions
-    netlist.remove_Xinstruction(".*\\.tran.*")  # is case insensitive
-    netlist.remove_Xinstruction(".*\\.ac.*")  # is case insensitive
-    if ac_analysis:
-        netlist.add_instruction(f".ac {ac}")
-    else:
-        netlist.add_instruction(f".tran {maxtime_nsecs}n")
        
     traceidx = 0
     nrtraces = len(job["traces"])
     for tracename in job["traces"]:
-        # set "dense" line style. Decide later on if it you take it or not 
+        if traceidx != 0:
+            # no need to reset if I never changed it
+            netlist.reset_netlist()
+        
+        # Set simulation instructions
+        netlist.remove_Xinstruction(".*\\.tran.*")  # is case insensitive
+        netlist.remove_Xinstruction(".*\\.ac.*")  # is case insensitive
+        if ac_analysis:
+            netlist.add_instruction(f".ac {ac}")
+        else:
+            netlist.add_instruction(f".tran {maxtime_nsecs}n")        
+        
+        # create "dense" line style. Decide later on if it you take it or not 
         if (nrtraces == 1) or (traceidx == 0):
             dense_linestyle = 'solid'
         else:
