@@ -27,52 +27,6 @@ outdir = "./batchsim/"
 
 LOG_SUBSTITUTIONS = False
 
-
-def check_and_correct_encoding(asc_file: str):
-    """Needed with MacOS's LTSpice, as it writes .asc files with incomplete 
-    encoding (utf-16-le without BOM). This function checks if the file has that
-    encoding, and if so, rewrites the file with a 'normal' encoding.
-
-    Args:
-        asc_file (str): File name of the .asc file
-
-    Raises:
-        FileNotFoundError: When the file is not found
-        NotImplementedError: When the encoding cannot be determined
-    """
-    
-    # test if file exists.
-    asc_file_path = Path(asc_file)
-    if not asc_file_path.exists():
-        raise FileNotFoundError(f"File {asc_file} not found")
-    
-    # test if format detection works.
-    try:
-        with open(asc_file_path, 'r') as asc_file:
-            line = asc_file.readline().lower()
-            if line.startswith("version"):
-                return
-    except:
-        pass
-    
-    # NOT. so test in utf16-LE
-    asc_file = open(asc_file_path, 'r', encoding='utf-16-le')
-    line = asc_file.readline().lower()
-    if line.startswith("version"):
-        # Yes, that works. So rewrite the file
-        # rewind to the start, read everything and close
-        asc_file.seek(0)
-        content = asc_file.read()
-        asc_file.close()
-        # now write the same content back to the file (overwriting the content)
-        with open(asc_file_path, 'w') as asc_file:
-            asc_file.write(content)
-        return
-    else:
-        asc_file.close()
-        raise NotImplementedError(f"Format not supported for ASC file {asc_file}")
-
-
 # temporary filenames (actually, the base names)
 tmp_filenames = []
 
@@ -418,7 +372,6 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
 
     # now prepare the spice model
     if use_asc:
-        check_and_correct_encoding(f"./{model_fname}")
         netlist = AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
     else:
         netlist = SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
