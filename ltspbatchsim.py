@@ -9,7 +9,6 @@ import glob
 import json
 import argparse
 import math
-from pathlib import Path
 import fnmatch
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
@@ -413,6 +412,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         for s in ["commondefs", "tracedefs"]:
             if s in job: 
                 for k in job[s]:
+                    d = {}
                     if s == "tracedefs":
                         if isinstance(k, dict):
                             for kk, kv in k.items():
@@ -427,9 +427,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                                     for p in tracename_parts:
                                         kv = kv.replace(f"{{name{i}}}", p)
                                         i += 1
-                                if LOG_SUBSTITUTIONS:
-                                    print(f"set_component_value({kk}:{kv})")                                
-                                netlist.set_component_value(kk, kv)
+                                d[kk] = kv
                         else:
                             if "{name}" in k:
                                 k = k.replace("{name}", tracename)
@@ -439,22 +437,24 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                                 for p in tracename_parts:
                                     k = k.replace(f"{{name{i}}}", p)
                                     i += 1
-                            d = CONFIG["defs"][k]
-                            if LOG_SUBSTITUTIONS:
-                                print(f"set_component_values({d})")                                                            
-                            netlist.set_component_values(**d)
+                            d.update(CONFIG["defs"][k])
                     else:
                         if isinstance(k, dict):
-                            for kk, kv in k.items():
-                                if LOG_SUBSTITUTIONS:
-                                    print(f"set_component_value({kk}:{kv})")                                
-                                netlist.set_component_value(kk, kv)
+                            d.update(k)
                         else:                        
-                            d = CONFIG["defs"][k]
-                            if LOG_SUBSTITUTIONS:
-                                print(f"set_component_values({d})")                                                 
-                            netlist.set_component_values(**d)   
-        
+                            d.update(CONFIG["defs"][k])
+                            
+                    for kk, kv in d.items():
+                        if use_asc and kk.startswith("X"):
+                            # remove the X when using asceditor
+                            kk = kk[1:]
+                        if LOG_SUBSTITUTIONS:
+                            print(f"set_component_value({kk}:{kv})")                                
+                        netlist.set_component_value(kk, kv)
+                        if use_asc:
+                            # wipe Value2 if in asc
+                            netlist.set_component_parameters(kk, **{"Value2": ""})                            
+                                            
         netlist.save_netlist(netlistfile)
         
         print(f"Job: {jobname}: Trace '{tracename}'")
