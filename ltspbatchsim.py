@@ -1,30 +1,40 @@
 import numpy as np
-from PyLTSpice import SpiceEditor, RawRead, AscEditor
+import PyLTSpice
 from matplotlib import pyplot as plt
 from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
 import os
-import subprocess
 import shutil
 import glob
 import json
 import argparse
 import math
 import fnmatch
+import sys
+import logging
+import subprocess
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
-# This does NOT use the MacOSX LTSpice, as the command line parameters are incomplete. It uses wine.
-# I do NOT use any PyLTSpice runner, as it has problems with long command lines.
-
-default_config_file = "ltspbatchsim.json"
-ltspice_path = os.path.expanduser(f"~/.wine/drive_c{os.path.expanduser('~')}/AppData/Local/Programs/ADI/LTspice/LTspice.exe")
-CONFIG = {}
-
-additional_files = ["*.lib", "*.LIB", "*.asy", "*.ASY"]
+# TODO: use a real logger
+LOG_SUBSTITUTIONS = False
 
 outdir = "./batchsim/"
 
-LOG_SUBSTITUTIONS = False
+logging.basicConfig(level=logging.INFO)  # Set up the root logger first
+PyLTSpice.set_log_level(logging.WARNING)
+
+
+class mySimulator(PyLTSpice.LTspice):
+    # one could force the paths here
+    # spice_exe = []
+    # process_name = None
+    pass
+
+
+default_config_file = "ltspbatchsim.json"
+CONFIG = {}
+
+additional_files = ["*.lib", "*.LIB", "*.asy", "*.ASY"]
 
 # temporary filenames (actually, the base names)
 tmp_filenames = []
@@ -210,7 +220,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     if "alt" in job:
         alt_solver = job["alt"]
     
-    print(f"Job: {jobname}, {"AC" if ac_analysis else "Transient"} analysis.")         
+    print(f"Job: {jobname}, {'AC' if ac_analysis else 'Transient'} analysis.")         
     
     ylabels = []
     if "ylabel" in job:
@@ -371,9 +381,9 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
 
     # now prepare the spice model
     if use_asc:
-        netlist = AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
+        netlist = PyLTSpice.AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
     else:
-        netlist = SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
+        netlist = PyLTSpice.SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
 
     basename = f"{outdir}{jobname}".replace(' ', '_')
     tmp_filenames_register(basename)
@@ -458,16 +468,17 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
         netlist.save_netlist(netlistfile)
         
         print(f"Job: {jobname}: Trace '{tracename}'")
-        spice_exe = ['wine', ltspice_path]
+        opts = []
         if alt_solver:
-            spice_exe.append('-alt')
+            opts.append('-alt')
         else:
-            spice_exe.append('-norm')
-        spice_exe.extend(['-Run', '-b', netlistfile])
+            opts.append('-norm')
+            
         with open(processlogfile, "w") as outfile:
-            subprocess.run(spice_exe, stdout=outfile, stderr=subprocess.STDOUT)
+            # print(f"RUNNING: {spice_exe}")
+            mySimulator.run(netlistfile, opts, timeout=None, stdout=outfile, stderr=subprocess.STDOUT)
         
-        LTR = RawRead(rawfile)
+        LTR = PyLTSpice.RawRead(rawfile)
         # LTR.to_excel("out.xlsx")
         for row in range(0, nrrows):
             y = LTR.get_trace(ylabels[row])
@@ -564,13 +575,24 @@ def load_config(config_file):
 
 
 if __name__ == "__main__":
+
+    # get path from LTSpice, as determined by spicelib
+    if len(mySimulator.spice_exe) == 1:
+        winepath = None
+        ltspice_path = mySimulator.spice_exe[0]
+    else:
+        winepath = mySimulator.spice_exe[0]
+        ltspice_path = mySimulator.spice_exe[1]
+                    
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
                                      "Will use LTSpice installed under wine.")
     parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", which will be passed on to this program as \"test_OPA189*\".") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
+    if sys.platform == 'linux' or sys.platform == 'darwin':
+        parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'")
     parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
-    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. This is somewhat slower, and has various issues (see spicelib issues on github), but can be useful for diving into problems detected with the simulations, as it keeps the .asc files after the simulations.")
+    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. This is somewhat slower, but can be useful for diving into problems detected with the simulations, as it keeps the .asc files after the simulations.")
     parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
@@ -582,15 +604,38 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     ltspice_path = args.ltspicepath
+    if sys.platform == 'linux' or sys.platform == 'darwin':
+        winepath = args.winepath
+        if len(winepath) == 0:
+            winepath = None
+    else:
+        winepath = None
+        
     if not os.path.isfile(ltspice_path):
         print(f"ERR: ltspice is not found under \"{ltspice_path}\". Please specify a valid path via --ltspicepath.")
         exit(1)
         
+    if winepath:
+        if not shutil.which(winepath):
+            print(f"ERR: wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
+            exit(1)            
+
+    new_spice_exe = [ltspice_path]
+    if winepath:
+        new_spice_exe = [winepath, ltspice_path]
+    if mySimulator.spice_exe != new_spice_exe:
+        mySimulator.spice_exe = new_spice_exe
+        mySimulator.process_name = None  # let the lib find out the process name
+    
     outdir = args.outdir
     if not os.path.isdir(outdir):
         print(f"ERR: output directory \"{outdir}\" cannot be found. Please specify a valid path via --outdir.")
         exit(1)
     
+    if not os.path.isfile(args.config_file):
+        print(f"ERR: config file \"{args.config_file}\" cannot be found. Please specify a valid path.")
+        exit(1)
+        
     load_config(args.config_file)
     prepare()
     
@@ -621,11 +666,12 @@ if __name__ == "__main__":
         if model_fname.lower().endswith(".asc"):
             # convert to .net file
             print(f"Extracting the netlist from the schema \"{model_fname}\"")
-            spice_exe = ['wine', ltspice_path, '-netlist', ]
-            subprocess.run(spice_exe + [model_fname], stderr=subprocess.STDOUT)
-            model_fname = model_fname[:-4] + ".net"
+            processlogfile = f"{model_fname[:-4]}_process.log"
+            with open(processlogfile, "w") as outfile:
+                model_fname = mySimulator.create_netlist(model_fname, stdout=outfile, stderr=subprocess.STDOUT)
+
             if not os.path.isfile(model_fname):
-                print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong.")
+                print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong. See file {processlogfile}.")
                 exit(1)
 
     print(f"\nRunning simulations on all the jobs, using the netlist \"{model_fname}\".")
@@ -647,7 +693,7 @@ if __name__ == "__main__":
                         break
                 
         if not take_me:
-            print(f"Skipping job '{job["name"]}'.")
+            print(f"Skipping job \"{job['name']}\".")
             continue
         run_analysis(job, 
                      showplot=True, 
