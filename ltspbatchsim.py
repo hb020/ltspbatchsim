@@ -1,5 +1,6 @@
 import numpy as np
-import PyLTSpice
+import spicelib
+from spicelib.simulators.ltspice_simulator import LTspice
 from matplotlib import pyplot as plt
 from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
 import os
@@ -15,16 +16,9 @@ import subprocess
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
-# TODO: use a real logger
-LOG_SUBSTITUTIONS = False
-
 outdir = "./batchsim/"
 
-logging.basicConfig(level=logging.INFO)  # Set up the root logger first
-PyLTSpice.set_log_level(logging.WARNING)
-
-
-class mySimulator(PyLTSpice.LTspice):
+class mySimulator(LTspice):
     # one could force the paths here
     # spice_exe = []
     # process_name = None
@@ -200,7 +194,7 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], 
+def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], 
                  single_bode=False, use_asc=False, dense=False, defaultaltsolver=False):
     nrcols = 0
     nrrows = 0
@@ -220,7 +214,11 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     if "alt" in job:
         alt_solver = job["alt"]
     
-    print(f"Job: {jobname}, {'AC' if ac_analysis else 'Transient'} analysis.")         
+    if not take_me:
+        logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Skipping")
+        return
+    else:
+        logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", {'AC' if ac_analysis else 'Transient'} analysis.")         
     
     ylabels = []
     if "ylabel" in job:
@@ -243,7 +241,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
             ac = defaultac        
         ac = ac.strip()
         if len(ac) == 0:
-            print("ERR: You need to specify an AC analysis string via 'ac'.")
+            logger.error("You need to specify an AC analysis string via 'ac'.")
             return
         
         # ac format is the spice format for .AC: 
@@ -259,8 +257,8 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 end_freq = freq2Hz(tparts[3])
         
         if math.isnan(start_freq) or math.isnan(end_freq):
-            print(f"ERR: unsupported transient AC analysis format \"{ac}\".")
-            print("  Format must be \"<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>\".")
+            logger.error(f"Unsupported transient AC analysis format \"{ac}\".")
+            logger.error("  Format must be \"<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>\".")
             return
         
         # gain and phase in separate columns, it would be too dense otherwise
@@ -310,13 +308,13 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                 startrecording_nsecs = -1  # signal error
             
             if startrecording_nsecs < 0 or endrecording_nsecs < 0:
-                print(f"ERR: unsupported transient time format \"{t}\".")
-                print("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+                logger.error(f"Unsupported transient time format \"{t}\".")
+                logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
                 return
 
             if visible_nsecs <= 0:
-                print(f"ERR: unsupported transient time format \"{t}\", duration time cannot be 0 or negative.")
-                print("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 Tstop Tstart\". (First and last forms are like LTSpice .TRAN)")
+                logger.error(f"Unsupported transient time format \"{t}\", duration time cannot be 0 or negative.")
+                logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 Tstop Tstart\". (First and last forms are like LTSpice .TRAN)")
                 return
             
             column_definitions.append({"name": t,
@@ -333,7 +331,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
     # print(column_definitions)
                  
     if nrcols == 0 or nrrows == 0:
-        print(f"ERR: no plots defined for {jobname}")
+        logger.error(f"No plots defined for {jobname}")
         return
 
     # set the graph width, every column has the same width (as is the easiest with matplot)
@@ -381,11 +379,11 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
 
     # now prepare the spice model
     if use_asc:
-        netlist = PyLTSpice.AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
+        netlist = spicelib.AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
     else:
-        netlist = PyLTSpice.SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
+        netlist = spicelib.SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
 
-    basename = f"{outdir}{jobname}".replace(' ', '_')
+    basename = os.path.join(outdir, jobname.replace(' ', '_'))
     tmp_filenames_register(basename)
        
     traceidx = 0
@@ -456,10 +454,9 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                             
                     for kk, kv in d.items():
                         if use_asc and kk.startswith("X"):
-                            # remove the X when using asceditor
+                            # remove the X when using spicelib.AscEditor
                             kk = kk[1:]
-                        if LOG_SUBSTITUTIONS:
-                            print(f"set_component_value({kk}:{kv})")                                
+                        logger.debug(f"set_component_value({kk}:{kv})")                                
                         netlist.set_component_value(kk, kv)
                         if use_asc:
                             # wipe Value2 if in asc
@@ -467,7 +464,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                                             
         netlist.save_netlist(netlistfile)
         
-        print(f"Job: {jobname}: Trace '{tracename}'")
+        logger.info(f"Job: {jobname}: Trace '{tracename}'")
         opts = []
         if alt_solver:
             opts.append('-alt')
@@ -475,10 +472,9 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
             opts.append('-norm')
             
         with open(processlogfile, "w") as outfile:
-            # print(f"RUNNING: {spice_exe}")
             mySimulator.run(netlistfile, opts, timeout=None, stdout=outfile, stderr=subprocess.STDOUT)
         
-        LTR = PyLTSpice.RawRead(rawfile)
+        LTR = spicelib.RawRead(rawfile)
         # LTR.to_excel("out.xlsx")
         for row in range(0, nrrows):
             y = LTR.get_trace(ylabels[row])
@@ -506,7 +502,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                         # I always have 2 axis, no matter what nrcols says. 
                         # so skip column 1, and do both at the same time
                         # this construction prevents extra code in case of single_bode
-                        if col == 0:
+                        if col == 0:                            
                             ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename, linestyle=linestyle)
                             if single_bode:
                                 ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle='dashed')
@@ -530,7 +526,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
                             endidx = len(t)
                         ax[row][col].plot(t[startidx:endidx] - startrecording, v[startidx:endidx], label=tracename, linestyle=linestyle)
 
-    print(f"Job: {jobname}: Creating graph.")
+    logger.info(f"Job: {jobname}: Creating graph.")
     for row in range(0, nrrows):
         for col in range(0, nrcols):
             if row == 0 and col == 0:
@@ -556,7 +552,7 @@ def run_analysis(job, showplot=True, model_fname="", defaultac="", defaulttransi
 
     imagefile = f"{basename}.png"
     fig.savefig(fname=imagefile, dpi=300)
-    print(f"Job: {jobname}: The results are in the file {imagefile}\n")
+    logger.info(f"Job: {jobname}: The results are in the file {imagefile}")
     if showplot:
         fig.show()
 
@@ -569,7 +565,7 @@ def prepare():
 
 def load_config(config_file):
     global CONFIG
-    print(f"Using config file \"{config_file}\".")
+    logger.info(f"Using config file \"{config_file}\".")
     f = open(config_file)
     CONFIG = json.load(f)
 
@@ -587,7 +583,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
                                      "Will use LTSpice installed under wine.")
     parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
-    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s). If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", which will be passed on to this program as \"test_OPA189*\".") 
+    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", which will be passed on to this program as \"test_OPA189*\".") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
     if sys.platform == 'linux' or sys.platform == 'darwin':
         parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'")
@@ -598,11 +594,45 @@ if __name__ == "__main__":
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
     parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.")
     parser.add_argument('--dense', default=False, action='store_true', help="Use this if the graph is dense. It will dash the lines, making distinction easier. Not used with '--single_bode'")
+    parser.add_argument('-v', '--verbose', default=logging.INFO, help="Be verbose", action="store_const", dest="loglevel", const=logging.DEBUG)
+    parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. If set, will log to \"{config_file}.log\", in append mode.")
     
-    # use_asc is not preferred, as PyLTSpice has some bugs in the AscEditor.
+    # use_asc is not preferred, as spicelib has some limitations in the spicelib.AscEditor.
     
     args = parser.parse_args()
     
+    # this all is before the logging setup, so use print in case of problems
+    outdir = args.outdir
+    if not (outdir.endswith('\\') or outdir.endswith('/')):
+        print(f"ERROR: Output directory \"{outdir}\" is not terminated with a slash. Please do so.")
+        exit(1)
+    if not os.path.isdir(outdir):
+        print(f"ERROR: Output directory \"{outdir}\" cannot be found. Please specify a valid path via --outdir.")
+        exit(1)
+    
+    if not os.path.isfile(args.config_file):
+        print(f"ERROR: Config file \"{args.config_file}\" cannot be found. Please specify a valid path.")
+        exit(1)
+        
+    if args.log:
+        # TODO: set log file to outdir/config_file.log
+        fname, fext = os.path.splitext(args.config_file) 
+        logfile = os.path.join(outdir, fname + ".log")
+        
+        print(f"logging to \"{logfile}\"")
+        
+        # reconfigure logging
+        logging.basicConfig(filename=logfile, level=args.loglevel)
+    else:
+        logging.basicConfig(level=args.loglevel)
+        
+    logger = logging.getLogger(__name__)
+        
+    if args.loglevel == logging.DEBUG:
+        spicelib.set_log_level(logging.INFO)
+    else:
+        spicelib.set_log_level(logging.WARNING)
+                
     ltspice_path = args.ltspicepath
     if sys.platform == 'linux' or sys.platform == 'darwin':
         winepath = args.winepath
@@ -612,12 +642,12 @@ if __name__ == "__main__":
         winepath = None
         
     if not os.path.isfile(ltspice_path):
-        print(f"ERR: ltspice is not found under \"{ltspice_path}\". Please specify a valid path via --ltspicepath.")
+        logger.error(f"ltspice is not found under \"{ltspice_path}\". Please specify a valid path via --ltspicepath.")
         exit(1)
         
     if winepath:
         if not shutil.which(winepath):
-            print(f"ERR: wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
+            logger.error(f"wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
             exit(1)            
 
     new_spice_exe = [ltspice_path]
@@ -626,16 +656,7 @@ if __name__ == "__main__":
     if mySimulator.spice_exe != new_spice_exe:
         mySimulator.spice_exe = new_spice_exe
         mySimulator.process_name = None  # let the lib find out the process name
-    
-    outdir = args.outdir
-    if not os.path.isdir(outdir):
-        print(f"ERR: output directory \"{outdir}\" cannot be found. Please specify a valid path via --outdir.")
-        exit(1)
-    
-    if not os.path.isfile(args.config_file):
-        print(f"ERR: config file \"{args.config_file}\" cannot be found. Please specify a valid path.")
-        exit(1)
-        
+                    
     load_config(args.config_file)
     prepare()
     
@@ -655,28 +676,33 @@ if __name__ == "__main__":
         
     model_fname = CONFIG["model"]
     if not os.path.isfile(model_fname):
-        print(f"ERR: cannot find model file \"{model_fname}\".")
+        logger.error(f"Cannot find model file \"{model_fname}\".")
         exit(1)
         
+    model_root, model_ext = os.path.splitext(model_fname)
     if args.use_asc:
-        if not model_fname.lower().endswith(".asc"):
-            print(f"ERR: you must provide a .asc file as model when you use --use_asc. The name \"{model_fname}\"is invalid.")
+        if model_ext.lower() != ".asc":
+            logger.error(f"You must provide a .asc file as model when you use --use_asc. The name \"{model_fname}\"is invalid.")
             exit(1)
     else:
-        if model_fname.lower().endswith(".asc"):
+        if model_ext.lower() == ".asc":
             # convert to .net file
-            print(f"Extracting the netlist from the schema \"{model_fname}\"")
-            processlogfile = f"{model_fname[:-4]}_process.log"
+            logger.info(f"Creating the netlist for the schema \"{model_fname}\"")
+            # make sure the log file goes to outdir
+            processlogfile = os.path.join(outdir, f"{model_root}_create_netlist.log")
             with open(processlogfile, "w") as outfile:
                 model_fname = mySimulator.create_netlist(model_fname, stdout=outfile, stderr=subprocess.STDOUT)
 
             if not os.path.isfile(model_fname):
-                print(f"ERR: cannot find netlist file \"{model_fname}\", something went wrong. See file {processlogfile}.")
+                logger.error(f"Cannot find netlist file \"{model_fname}\", something went wrong. See file {processlogfile}.")
                 exit(1)
 
-    print(f"\nRunning simulations on all the jobs, using the netlist \"{model_fname}\".")
+    logger.info(f"Running simulations, on netlist \"{model_fname}\".")
             
+    nrjobs = len(CONFIG["run"])
+    jobnr = 0
     for job in CONFIG["run"]:
+        jobnr += 1
         # look if I need to run this job
         take_me = True
         if len(my_jobs) > 0:
@@ -692,10 +718,8 @@ if __name__ == "__main__":
                         take_me = True
                         break
                 
-        if not take_me:
-            print(f"Skipping job \"{job['name']}\".")
-            continue
         run_analysis(job, 
+                     jobnr, nrjobs, take_me, 
                      showplot=True, 
                      model_fname=model_fname,
                      defaultac=defaultac,
