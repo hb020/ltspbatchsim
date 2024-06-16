@@ -615,13 +615,10 @@ if __name__ == "__main__":
         exit(1)
         
     if args.log:
-        # TODO: set log file to outdir/config_file.log
         fname, fext = os.path.splitext(args.config_file) 
         logfile = os.path.join(outdir, fname + ".log")
-        
         print(f"logging to \"{logfile}\"")
-        
-        # reconfigure logging
+        # configure logging
         logging.basicConfig(filename=logfile, level=args.loglevel)
     else:
         logging.basicConfig(level=args.loglevel)
