@@ -13,10 +13,12 @@ import fnmatch
 import sys
 import logging
 import subprocess
+from pathlib import Path
 
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
 outdir = "./batchsim/"
+
 
 class mySimulator(LTspice):
     # one could force the paths here
@@ -464,7 +466,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
                                             
         netlist.save_netlist(netlistfile)
         
-        logger.info(f"Job: {jobname}: Trace '{tracename}'")
+        logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}'")
         opts = []
         if alt_solver:
             opts.append('-alt')
@@ -526,7 +528,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
                             endidx = len(t)
                         ax[row][col].plot(t[startidx:endidx] - startrecording, v[startidx:endidx], label=tracename, linestyle=linestyle)
 
-    logger.info(f"Job: {jobname}: Creating graph.")
+    logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Creating graph.")
     for row in range(0, nrrows):
         for col in range(0, nrcols):
             if row == 0 and col == 0:
@@ -552,7 +554,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
 
     imagefile = f"{basename}.png"
     fig.savefig(fname=imagefile, dpi=300)
-    logger.info(f"Job: {jobname}: The results are in the file {imagefile}")
+    logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", results are in \"{imagefile}\"")
     if showplot:
         fig.show()
 
@@ -623,7 +625,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=args.loglevel)
         
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(Path(__file__).stem)
         
     if args.loglevel == logging.DEBUG:
         spicelib.set_log_level(logging.INFO)
