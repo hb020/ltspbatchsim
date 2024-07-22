@@ -46,8 +46,7 @@ positional arguments:
   config_file           Name of the config json file. Default: 'ltspbatchsim.json'
   job_name              Name of the job(s). If left empty: all jobs will be run. 
                         Wildcards can be used, but please escape
-                        the * and ? to avoid shell expansion. Example of good use in shell: "test_OPA189\*", which will be
-                        passed on to this program as "test_OPA189*".
+                        the * and ? to avoid shell expansion. Example of good use in shell: "test_OPA189\*", which will be passed on to this program as "test_OPA189*".
 
 options:
   -h, --help            show this help message and exit
@@ -72,11 +71,13 @@ options:
 
 ```text
 model: str
+description: str
 ylabels: [str, ...]
 ac: str
 transients: [str, ...]
 defs: dict(dict)
 alt: int|bool
+timeout: int
 run
  |-name: str
  |-op: str
@@ -92,7 +93,9 @@ run
 ```
 
 * ```model```: the file name of the circuit.
-* ```ylabels```: the signals to be shown Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the jobs.
+* ```description```: description of the content of the file, used for logging. Not mandatory.
+* ```timeout```: The maximum time that a simulation can run, in seconds. Default is None, which means that there is no timeout.
+* ```ylabels```: the signals to be shown. Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the jobs.
 * ```ac```: the default values for the AC analysis of all AC analysis jobs. Can be overriden in the jobs. Format is identical to the spice ```.ac``` op command. Ignored when Transient analysis is requested by the job.
 
     Exemple: ```"dec 200 5 10e6"```

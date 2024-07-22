@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import spicelib
 from spicelib.simulators.ltspice_simulator import LTspice
@@ -196,8 +197,42 @@ def freq2Hz(t: str):
     return f
 
 
-def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", defaultac="", defaulttransients=[], defaultlabels=[], 
-                 single_bode=False, use_asc=False, dense=False, defaultaltsolver=False):
+def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True, 
+                 model_fname: str = "", defaultac: str = "", 
+                 defaulttransients: list = [], defaultlabels: list = [], 
+                 single_bode: bool = False, use_asc: bool = False, dense: bool = False, 
+                 defaultaltsolver: bool = False, timeout: int = None) -> bool:
+    """Run a simulation job, and create a graph from the results.
+
+    :param job: Job object, from config file
+    :type job: object
+    :param jobnr: Job nr of the total list of jobs
+    :type jobnr: int
+    :param nrjobs: Total list of jobs
+    :type nrjobs: int
+    :param take_me: Run me or not, defaults to True
+    :type take_me: bool, optional
+    :param model_fname: File name of the model, defaults to ""
+    :type model_fname: str, optional
+    :param defaultac: Values for the AC analysis. Can be overriden in the job. Format is identical to the spice ```.ac``` op command. Ignored when Transient analysis is requested by the job. Defaults to ""
+    :type defaultac: str, optional
+    :param defaulttransients: Values for the time sections of all transient analysis jobs. Can be overriden in the job. Ignored when AC analysis is requested by the job. Defaults to []
+    :type defaulttransients: list, optional
+    :param defaultlabels: The signals to be shown. Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the job. Defaults to []
+    :type defaultlabels: list, optional
+    :param single_bode: Put gain and phase in the same graph. Defaults to False
+    :type single_bode: bool, optional
+    :param use_asc: Use the ASC file, not a netlist. Defaults to False
+    :type use_asc: bool, optional
+    :param dense: Pack the graph densely. Defaults to False
+    :type dense: bool, optional
+    :param defaultaltsolver: Use the Alt solver, defaults to False
+    :type defaultaltsolver: bool, optional
+    :param timeout: Run timeout in seconds, defaults to None
+    :type timeout: int, optional
+    :return: True if succeeded. If not, it will log the error.
+    :rtype: bool
+    """
     nrcols = 0
     nrrows = 0
     
@@ -218,7 +253,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
     
     if not take_me:
         logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Skipping")
-        return
+        return True
     else:
         logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", {'AC' if ac_analysis else 'Transient'} analysis.")         
     
@@ -244,7 +279,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
         ac = ac.strip()
         if len(ac) == 0:
             logger.error("You need to specify an AC analysis string via 'ac'.")
-            return
+            return False
         
         # ac format is the spice format for .AC: 
         # "<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>"
@@ -261,7 +296,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
         if math.isnan(start_freq) or math.isnan(end_freq):
             logger.error(f"Unsupported transient AC analysis format \"{ac}\".")
             logger.error("  Format must be \"<oct, dec, lin> <Nsteps> <StartFreq> <EndFreq>\".")
-            return
+            return False
         
         # gain and phase in separate columns, it would be too dense otherwise
         column_definitions.append({"name": "gain", "start_freq": start_freq, "end_freq": end_freq, "method": method})
@@ -312,12 +347,12 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
             if startrecording_nsecs < 0 or endrecording_nsecs < 0:
                 logger.error(f"Unsupported transient time format \"{t}\".")
                 logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
-                return
+                return False
 
             if visible_nsecs <= 0:
                 logger.error(f"Unsupported transient time format \"{t}\", duration time cannot be 0 or negative.")
                 logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 Tstop Tstart\". (First and last forms are like LTSpice .TRAN)")
-                return
+                return False
             
             column_definitions.append({"name": t,
                                        "startrecording_nsecs": startrecording_nsecs, 
@@ -334,7 +369,7 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
                  
     if nrcols == 0 or nrrows == 0:
         logger.error(f"No plots defined for {jobname}")
-        return
+        return False
 
     # set the graph width, every column has the same width (as is the easiest with matplot)
     xsize = 10
@@ -474,7 +509,14 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
             opts.append('-norm')
             
         with open(processlogfile, "w") as outfile:
-            mySimulator.run(netlistfile, opts, timeout=None, stdout=outfile, stderr=subprocess.STDOUT)
+            starttm = time.time()
+            try:
+                mySimulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
+            except subprocess.TimeoutExpired:
+                logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
+                return False
+            endtm = time.time()
+            logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.2f} seconds.")
         
         LTR = spicelib.RawRead(rawfile)
         # LTR.to_excel("out.xlsx")
@@ -555,9 +597,8 @@ def run_analysis(job, jobnr, nrjobs, take_me, showplot=True, model_fname="", def
     imagefile = f"{basename}.png"
     fig.savefig(fname=imagefile, dpi=300)
     logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", results are in \"{imagefile}\"")
-    if showplot:
-        fig.show()
-
+    return True
+    
 
 def prepare():
     for cf in additional_files:
@@ -697,6 +738,16 @@ if __name__ == "__main__":
                 exit(1)
 
     logger.info(f"Running simulations, on netlist \"{model_fname}\".")
+    if len(my_jobs) != 0:
+        logger.info(f"Limiting to jobs with names {', '.join(f'\"{w}\"' for w in my_jobs)}.")
+        
+    if "description" in CONFIG:
+        description = CONFIG["description"]
+        logger.info(f"Description: {description}")
+    
+    timeout = None
+    if "timeout" in CONFIG:
+        timeout = int(CONFIG["timeout"])
             
     nrjobs = len(CONFIG["run"])
     jobnr = 0
@@ -709,7 +760,7 @@ if __name__ == "__main__":
             for j in my_jobs:
                 j = j.lower()
                 if '*' in j or '?' in j:
-                    if fnmatch.fnmatch(job["name"], j):
+                    if fnmatch.fnmatch(job["name"].lower(), j):
                         take_me = True
                         break                        
                 else:
@@ -717,16 +768,19 @@ if __name__ == "__main__":
                         take_me = True
                         break
                 
-        run_analysis(job, 
-                     jobnr, nrjobs, take_me, 
-                     showplot=True, 
-                     model_fname=model_fname,
-                     defaultac=defaultac,
-                     defaulttransients=defaulttransients,
-                     defaultlabels=defaultlabels,
-                     single_bode=args.single_bode,
-                     use_asc=args.use_asc,
-                     dense=args.dense,
-                     defaultaltsolver=defaultaltsolver
-                     )
+        if not run_analysis(job, jobnr, nrjobs, 
+                            take_me, 
+                            model_fname=model_fname,
+                            defaultac=defaultac, 
+                            defaulttransients=defaulttransients, 
+                            defaultlabels=defaultlabels,
+                            single_bode=args.single_bode,
+                            use_asc=args.use_asc,
+                            dense=args.dense,
+                            defaultaltsolver=defaultaltsolver,
+                            timeout=timeout
+                            ): 
+            logger.error("Error: bailing out.")
+            exit(1)
+            
     tmp_filenames_cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
