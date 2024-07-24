@@ -3,6 +3,7 @@ import numpy as np
 import spicelib
 from spicelib.simulators.ltspice_simulator import LTspice
 from matplotlib import pyplot as plt
+from matplotlib import axes
 from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
 import os
 import shutil
@@ -22,33 +23,60 @@ outdir = "./batchsim/"
 
 
 class mySimulator(LTspice):
+    """Base class for the simulator. 
+    This is a dummy class, as the LTspice class is already defined in spicelib. 
+    It can be extended here, if needed, for example to force the paths or the process name.
+    """
     # one could force the paths here
     # spice_exe = []
     # process_name = None
     pass
 
 
+# default config file
 default_config_file = "ltspbatchsim.json"
+
+# global object with the configuration read from the config file
 CONFIG = {}
 
+# the additional files to be included in the simulation
 additional_files = ["*.lib", "*.LIB", "*.asy", "*.ASY"]
 
-# temporary filenames (actually, the base names)
+# global array for the temporary filenames (actually, the base names)
 tmp_filenames = []
 
 
-def delfiles(pattern):
+def delfiles(pattern: str):
+    """Delete files based on a pattern.
+
+    :param pattern: file name pattern, with wildcards
+    :type pattern: str
+    """
     for p in glob.glob(pattern, recursive=False):
         if os.path.isfile(p):
             os.remove(p)
 
 
 def tmp_filenames_register(fname: str):
+    """Register a temporary file name for later deletion.
+
+    :param fname: base file name, no extension
+    :type fname: str
+    """
     global tmp_filenames
     tmp_filenames.append(fname)
     
 
-def tmp_filenames_cleanup(keep_nets=False, keep_logs=False, keep_raw=False):
+def tmp_filenames_cleanup(keep_nets: bool = False, keep_logs: bool = False, keep_raw: bool = False):
+    """Clean up the temporary files, allow some files to be kept
+
+    :param keep_nets: Keep ".net" files, defaults to False
+    :type keep_nets: bool, optional
+    :param keep_logs: Keep ".log" files, defaults to False
+    :type keep_logs: bool, optional
+    :param keep_raw: Keep ".raw" files, defaults to False
+    :type keep_raw: bool, optional
+    """
     for fname in tmp_filenames:
         if not keep_nets:
             delfiles(f"{fname}*.net")
@@ -59,7 +87,23 @@ def tmp_filenames_cleanup(keep_nets=False, keep_logs=False, keep_raw=False):
     
     
 # format the graph axis
-def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobname):
+def format_axis_transient(ax: axes.Axes, size: int, offset_time_s: float, duration_time_s: float,
+                          ylabel: str, jobname: str):
+    """Format the axis for a transient analysis.
+
+    :param ax: the axis to format
+    :type ax: axes.Axes
+    :param size: size of the sections, 0 for automatic sectionning
+    :type size: int
+    :param offset_time_s: offset time in seconds
+    :type offset_time_s: float
+    :param duration_time_s: duration time in seconds
+    :type duration_time_s: float
+    :param ylabel: the label for the y axis
+    :type ylabel: str
+    :param jobname: the job name
+    :type jobname: str
+    """
     # print(f"size: {size}, offset_time_s: {offset_time_s}, duration_time_s: {duration_time_s}")
     ax.set_xscale("linear")
     formatter0 = EngFormatter(unit='s')
@@ -103,7 +147,27 @@ def format_axis_transient(ax, size, offset_time_s, duration_time_s, ylabel, jobn
     ax.legend()    
 
 
-def format_axis_ac(ax, is_gain, single_bode, x_scale, start_freq, end_freq, ylabel, jobname):
+def format_axis_ac(ax: axes.Axes, is_gain: bool, single_bode: bool, x_scale: str, 
+                   start_freq: float, end_freq: float, ylabel: str, jobname: str):
+    """Format the axis for an AC analysis.
+
+    :param ax: The axis to format
+    :type ax: axes.Axes
+    :param is_gain: if this is a gain plot
+    :type is_gain: bool
+    :param single_bode: if this is a single bode plot
+    :type single_bode: bool
+    :param x_scale: the x scale, can be "lin" or "log"
+    :type x_scale: str
+    :param start_freq: the start frequency, in Hz
+    :type start_freq: float
+    :param end_freq: the end frequency, in Hz
+    :type end_freq: float
+    :param ylabel: the label for the y axis
+    :type ylabel: str
+    :param jobname: the job name
+    :type jobname: str
+    """
     if is_gain or not single_bode:
         if x_scale == "lin":
             ax.set_xscale("linear")
@@ -139,7 +203,14 @@ def format_axis_ac(ax, is_gain, single_bode, x_scale, start_freq, end_freq, ylab
         ax.legend()    
 
 
-def str2float(s: str):
+def str2float(s: str) -> float:
+    """Transform a string to a float. The string can have a suffix, like "k" for kilo, "m" for milli, etc.
+
+    :param s: input string
+    :type s: str
+    :return: the resulting float, or math.nan if the string is not a number
+    :rtype: float
+    """
     if s is None:
         return math.nan
     s = s.strip()
@@ -185,14 +256,28 @@ def str2float(s: str):
 
 
 # will not do smaller than nano seconds
-def time2nsecs(t: str):
+def time2nsecs(t: str) -> int:
+    """Transform a time string to nano seconds.
+
+    :param t: input time string, can have a suffix like "n" for nano, "u" for micro, etc.
+    :type t: str
+    :return: nano seconds or -1 if the string is not a time
+    :rtype: int
+    """
     f = str2float(t)
     if math.isnan(f):
         return -1
     return round(1000000000.0 * f)
 
 
-def freq2Hz(t: str):
+def freq2Hz(t: str) -> float:
+    """Transform a frequency string to Hz.
+
+    :param t: frequency string, can have a suffix like "k" for kilo, "m" for milli, etc.
+    :type t: str
+    :return: herz or math.nan if the string is not a frequency
+    :rtype: float
+    """
     f = str2float(t)
     return f
 
@@ -490,11 +575,15 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                             d.update(CONFIG["defs"][k])
                             
                     for kk, kv in d.items():
-                        if use_asc and kk.startswith("X"):
-                            # remove the X when using spicelib.AscEditor
-                            kk = kk[1:]
-                        logger.debug(f"set_component_value({kk}:{kv})")                                
+                        if kk.startswith("X"):
+                            if use_asc:
+                                # remove the X when using spicelib.AscEditor
+                                kk = kk[1:]
+                        logger.debug(f"set_component_value({kk}:{kv})")
+                        # logger.debug(f" before set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
+                        # logger.debug(f" before set: get_component_parameters({kk}) = {netlist.get_component_parameters(kk)}")
                         netlist.set_component_value(kk, kv)
+                        # logger.debug(f" after set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
                         if use_asc:
                             # wipe Value2 if in asc
                             netlist.set_component_parameters(kk, **{"Value2": ""})                            
@@ -509,6 +598,7 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
             opts.append('-norm')
             
         with open(processlogfile, "w") as outfile:
+            # keep timing, so I can print the process time
             starttm = time.time()
             try:
                 mySimulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
@@ -516,8 +606,9 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                 logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
                 return False
             endtm = time.time()
-            logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.2f} seconds.")
+            logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds.")
         
+        # interpret the simulation results
         LTR = spicelib.RawRead(rawfile)
         # LTR.to_excel("out.xlsx")
         for row in range(0, nrrows):
@@ -601,12 +692,19 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     
 
 def prepare():
+    """Prepare the output directory and copy the additional files.
+    """
     for cf in additional_files:
         for f in glob.glob(cf):
             shutil.copyfile(f"./{f}", f"{outdir}{f}")
 
 
-def load_config(config_file):
+def load_config(config_file: str):
+    """Load the configuration from a json file.
+
+    :param config_file: file name of the json file
+    :type config_file: str
+    """
     global CONFIG
     logger.info(f"Using config file \"{config_file}\".")
     f = open(config_file)
@@ -614,6 +712,8 @@ def load_config(config_file):
 
 
 if __name__ == "__main__":
+    """Main program.
+    """
 
     # get path from LTSpice, as determined by spicelib
     if len(mySimulator.spice_exe) == 1:
