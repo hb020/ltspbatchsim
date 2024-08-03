@@ -282,14 +282,14 @@ def freq2Hz(t: str) -> float:
     return f
 
 
-def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True, 
-                 model_fname: str = "", defaultac: str = "", 
-                 defaulttransients: list = [], defaultlabels: list = [], 
-                 single_bode: bool = False, use_asc: bool = False, dense: bool = False, 
-                 defaultaltsolver: bool = False, timeout: int = None) -> bool:
+def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True, 
+            model_fname: str = "", defaultac: str = "", 
+            defaulttransients: list = [], defaultlabels: list = [], 
+            single_bode: bool = False, use_asc: bool = False, dense: bool = False, 
+            defaultaltsolver: bool = False, timeout: int = None) -> bool:
     """Run a simulation job, and create a graph from the results.
 
-    :param job: Job object, from config file
+    :param job: Job object, from config file. The name of the job is to be set as the "name" element
     :type job: object
     :param jobnr: Job nr of the total list of jobs
     :type jobnr: int
@@ -299,11 +299,14 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     :type take_me: bool, optional
     :param model_fname: File name of the model, defaults to ""
     :type model_fname: str, optional
-    :param defaultac: Values for the AC analysis. Can be overriden in the job. Format is identical to the spice ```.ac``` op command. Ignored when Transient analysis is requested by the job. Defaults to ""
+    :param defaultac: Values for the AC analysis. Can be overriden in the job. Format is identical to the spice ```.ac``` op command. \
+        Ignored when Transient analysis is requested by the job. Defaults to ""
     :type defaultac: str, optional
-    :param defaulttransients: Values for the time sections of all transient analysis jobs. Can be overriden in the job. Ignored when AC analysis is requested by the job. Defaults to []
+    :param defaulttransients: Values for the time sections of all transient analysis jobs. Can be overriden in the job. \
+        Ignored when AC analysis is requested by the job. Defaults to []
     :type defaulttransients: list, optional
-    :param defaultlabels: The signals to be shown. Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the job. Defaults to []
+    :param defaultlabels: The signals to be shown. Each signal will get its own row. These are the default signals for all jobs, \
+        and can be overriden in the job. Defaults to []
     :type defaultlabels: list, optional
     :param single_bode: Put gain and phase in the same graph. Defaults to False
     :type single_bode: bool, optional
@@ -539,54 +542,48 @@ def run_analysis(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         rawfile = f"{basename}_{safe_tracename}.raw"
         processlogfile = f"{basename}_{safe_tracename}_process.log"
         
-        for s in ["commondefs", "tracedefs"]:
-            if s in job: 
-                for k in job[s]:
-                    d = {}
-                    if s == "tracedefs":
-                        if isinstance(k, dict):
-                            for kk, kv in k.items():
-                                if "{name}" in kv:
-                                    kv = kv.replace("{name}", tracename)
-                                elif "{name" in kv:
-                                    if ',' in tracename:
-                                        tracename_parts = [x.strip() for x in tracename.split(',')]
-                                    else:
-                                        tracename_parts = [x.strip() for x in tracename.split(' ')]
-                                    i = 1
-                                    for p in tracename_parts:
-                                        kv = kv.replace(f"{{name{i}}}", p)
-                                        i += 1
-                                d[kk] = kv
-                        else:
-                            if "{name}" in k:
-                                k = k.replace("{name}", tracename)
-                            elif "{name" in k:
+        s = "defs"
+        if s in job: 
+            for k in job[s]:
+                d = {}
+                if isinstance(k, dict):
+                    for kk, kv in k.items():
+                        if "{name}" in kv:
+                            kv = kv.replace("{name}", tracename)
+                        elif "{name" in kv:
+                            if ',' in tracename:
                                 tracename_parts = [x.strip() for x in tracename.split(',')]
-                                i = 1
-                                for p in tracename_parts:
-                                    k = k.replace(f"{{name{i}}}", p)
-                                    i += 1
-                            d.update(CONFIG["defs"][k])
-                    else:
-                        if isinstance(k, dict):
-                            d.update(k)
-                        else:                        
-                            d.update(CONFIG["defs"][k])
-                            
-                    for kk, kv in d.items():
-                        if kk.startswith("X"):
-                            if use_asc:
-                                # remove the X when using spicelib.AscEditor
-                                kk = kk[1:]
-                        logger.debug(f"set_component_value({kk}:{kv})")
-                        # logger.debug(f" before set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
-                        # logger.debug(f" before set: get_component_parameters({kk}) = {netlist.get_component_parameters(kk)}")
-                        netlist.set_component_value(kk, kv)
-                        # logger.debug(f" after set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
+                            else:
+                                tracename_parts = [x.strip() for x in tracename.split(' ')]
+                            i = 1
+                            for p in tracename_parts:
+                                kv = kv.replace(f"{{name{i}}}", p)
+                                i += 1
+                        d[kk] = kv
+                else:
+                    if "{name}" in k:
+                        k = k.replace("{name}", tracename)
+                    elif "{name" in k:
+                        tracename_parts = [x.strip() for x in tracename.split(',')]
+                        i = 1
+                        for p in tracename_parts:
+                            k = k.replace(f"{{name{i}}}", p)
+                            i += 1
+                    d.update(CONFIG["defs"][k])
+                        
+                for kk, kv in d.items():
+                    if kk.startswith("X"):
                         if use_asc:
-                            # wipe Value2 if in asc
-                            netlist.set_component_parameters(kk, **{"Value2": ""})                            
+                            # remove the X when using spicelib.AscEditor
+                            kk = kk[1:]
+                    logger.debug(f"set_component_value({kk}:{kv})")
+                    # logger.debug(f" before set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
+                    # logger.debug(f" before set: get_component_parameters({kk}) = {netlist.get_component_parameters(kk)}")
+                    netlist.set_component_value(kk, kv)
+                    # logger.debug(f" after set: get_component_value({kk}) = {netlist.get_component_value(kk)}")
+                    if use_asc:
+                        # wipe Value2 if in asc
+                        netlist.set_component_parameters(kk, **{"Value2": ""})                            
                                             
         netlist.save_netlist(netlistfile)
         
@@ -726,19 +723,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
                                      "Will use LTSpice installed under wine.")
     parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
-    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", which will be passed on to this program as \"test_OPA189*\".") 
+    parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, "
+                        "but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", "
+                        "which will be passed on to this program as \"test_OPA189*\".") 
     parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
     if sys.platform == 'linux' or sys.platform == 'darwin':
         parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'")
     parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
-    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. This is somewhat slower, but can be useful for diving into problems detected with the simulations, as it keeps the .asc files after the simulations.")
+    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. "
+                        "This is somewhat slower, but can be useful for diving into problems detected with the simulations, "
+                        "as it keeps the .asc files after the simulations.")
     parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
-    parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.")
-    parser.add_argument('--dense', default=False, action='store_true', help="Use this if the graph is dense. It will dash the lines, making distinction easier. Not used with '--single_bode'")
+    parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, "
+                        "instead of having gain and phase in separate columns.")
+    parser.add_argument('--dense', default=False, action='store_true', help="Use this if the graph is dense. "
+                        "It will dash the lines, making distinction easier. Not used with '--single_bode'")
     parser.add_argument('-v', '--verbose', default=logging.INFO, help="Be verbose", action="store_const", dest="loglevel", const=logging.DEBUG)
-    parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. If set, will log to \"{config_file}.log\", in append mode.")
+    parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. "
+                        "If set, will log to \"{config_file}.log\", in append mode.")
     
     # use_asc is not preferred, as spicelib has some limitations in the spicelib.AscEditor.
     
@@ -830,6 +834,7 @@ if __name__ == "__main__":
             logger.info(f"Creating the netlist for the schema \"{model_fname}\"")
             # make sure the log file goes to outdir
             processlogfile = os.path.join(outdir, f"{model_root}_create_netlist.log")
+            tmp_filenames_register(processlogfile[:-4])  # add the log file to the list of files to clean up
             with open(processlogfile, "w") as outfile:
                 model_fname = mySimulator.create_netlist(model_fname, stdout=outfile, stderr=subprocess.STDOUT)
 
@@ -840,7 +845,7 @@ if __name__ == "__main__":
     logger.info(f"Running simulations, on netlist \"{model_fname}\".")
     if len(my_jobs) != 0:
         jobnames = ', '.join(f'\"{w}\"' for w in my_jobs)
-        logger.info(f"Limiting to jobs with names {jobnames}.")
+        logger.info(f"Limiting to jobs with names {jobnames}.")        
         
     if "description" in CONFIG:
         description = CONFIG["description"]
@@ -850,10 +855,11 @@ if __name__ == "__main__":
     if "timeout" in CONFIG:
         timeout = int(CONFIG["timeout"])
             
-    nrjobs = len(CONFIG["run"])
+    nrjobs = len(CONFIG["jobs"])
     jobnr = 0
-    for job in CONFIG["run"]:
+    for jobname, job in CONFIG["jobs"].items():
         jobnr += 1
+        job["name"] = jobname
         # look if I need to run this job
         take_me = True
         if len(my_jobs) > 0:
@@ -869,18 +875,18 @@ if __name__ == "__main__":
                         take_me = True
                         break
                 
-        if not run_analysis(job, jobnr, nrjobs, 
-                            take_me, 
-                            model_fname=model_fname,
-                            defaultac=defaultac, 
-                            defaulttransients=defaulttransients, 
-                            defaultlabels=defaultlabels,
-                            single_bode=args.single_bode,
-                            use_asc=args.use_asc,
-                            dense=args.dense,
-                            defaultaltsolver=defaultaltsolver,
-                            timeout=timeout
-                            ): 
+        if not run_job(job, jobnr, nrjobs, 
+                       take_me, 
+                       model_fname=model_fname,
+                       defaultac=defaultac, 
+                       defaulttransients=defaulttransients, 
+                       defaultlabels=defaultlabels,
+                       single_bode=args.single_bode,
+                       use_asc=args.use_asc,
+                       dense=args.dense,
+                       defaultaltsolver=defaultaltsolver,
+                       timeout=timeout
+                       ): 
             logger.error("Error: bailing out.")
             exit(1)
             

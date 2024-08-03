@@ -72,29 +72,31 @@ options:
 ```text
 model: str
 description: str
+ylabel: str
 ylabels: [str, ...]
 ac: str
 transients: [str, ...]
 defs: dict(dict)
 alt: int|bool
 timeout: int
-run
- |-name: str
- |-op: str
- |-alt: int|bool
- |-ylabel: str
- |-ylabels: [str,...]
- |-ac: str
- |-transient: str
- |-transients: [str,...]
- |-traces: [str,...]
- |-commondefs: [dict|str,...]
- |-tracedefs: [dict|str,...]
+jobs: dict(dict)
+ key: str
+    |-op: str
+    |-alt: int|bool
+    |-ylabel: str
+    |-ylabels: [str,...]
+    |-ac: str
+    |-transient: str
+    |-transients: [str,...]
+    |-traces: [str,...]
+    |-commondefs: [dict|str,...]
+    |-tracedefs: [dict|str,...]
 ```
 
 * ```model```: the file name of the circuit.
 * ```description```: description of the content of the file, used for logging. Not mandatory.
 * ```timeout```: The maximum time that a simulation can run, in seconds. Default is None, which means that there is no timeout.
+* ```ylabel```: See ```ylabels``` mentioned below. Used when only 1 value is needed.
 * ```ylabels```: the signals to be shown. Each signal will get its own row. These are the default signals for all jobs, and can be overriden in the jobs.
 * ```ac```: the default values for the AC analysis of all AC analysis jobs. Can be overriden in the jobs. Format is identical to the spice ```.ac``` op command. Ignored when Transient analysis is requested by the job.
 
@@ -133,23 +135,21 @@ run
 ```
 
 * ```alt```: (true|false|1|0) Determine the use of the normal solver or the alternate solver. This is the default value. Can be overriden in the jobs.
-* ```run```: the definition of the jobs
-* ```run.name```: the name of the job
-* ```run.op```: the type of analysis. Set to 'ac[N]' for AC analysis.
+* ```jobs```: the definition of the jobs, a dictionary with job definitions. The key of the leements in the dict is the name of the job.
+* ```job.op```: the type of analysis. Set to 'ac[N]' for AC analysis.
   * 'ac' for AC analysis bode plot creation according to the ```--single_bode``` command line setting
   * 'ac1' for AC analysis bode plot in a single graph
   * 'ac2' for a bode plot in separate gain and phase graphs
-  * If absent, or any other value, a transient analysis is performed. 
-  * When using 'ac', be sure to designate a signal source, and to define the signal level. Example: ```"V3": "0 AC 1"```
-* ```run.alt```: Will override root level ```alt``` mentioned above.
-* ```run.ylabel```: Will override root level ```ylabels``` mentioned above. Used when only 1 value is needed.
-* ```run.ylabels```: Will override root level ```ylabels``` mentioned above.
-* ```run.ac```: Will override root level ```ac``` mentioned above.
-* ```run.transient```: Will override root level ```transients``` mentioned above. Used when only 1 value is needed.
-* ```run.transients```: Will override root level ```transients``` mentioned above.
-* ```run.traces```: List of the individual traces inside a graph. These names are not only printed, but also used to set component values. See ```run.tracedefs```.
-* ```run.commondefs```: component value settings for all traces in the graph. Can be a ```str```, in which case it refers to a deinition in the ```defs``` section at the root of the json file. If it is a ```dict```, it is a key/value list of component names and values.
-* ```run.tracedefs```: templatized component value settings for all traces in the graph. Is like ```commondefs```, but also accepts variables that are derived from ```traces```. If ```{name}``` is specified in a value in ```tracedefs```, it will be substituted by the name of the trace. If ```{nameN}``` is specified in a value in ```tracedefs```, it will be substituted by the Nth part of the name of the trace, split by comma or space.
+  * If absent, or any other value, a transient analysis is performed.
+  * When using 'ac[N]', be sure to designate a signal source, and to define the signal level. Example: ```"V3": "0 AC 1"```
+* ```job.alt```: Will override root level ```alt``` mentioned above.
+* ```job.ylabel```: See ```job.ylabels``` mentioned below. Used when only 1 value is needed.
+* ```job.ylabels```: Will override root level ```ylabels``` mentioned above.
+* ```job.ac```: Will override root level ```ac``` mentioned above.
+* ```job.transient```: Will override root level ```transients``` mentioned above. Used when only 1 value is needed.
+* ```job.transients```: Will override root level ```transients``` mentioned above.
+* ```job.traces```: List of the individual traces inside a graph. These names are not only printed, but also used to set component values. See ```job.tracedefs```.
+* ```job.defs```: component value settings for all traces in the graph. Can be a ```str```, in which case it refers to a deinition in the ```defs``` section at the root of the json file. If it is a ```dict```, it is a key/value list of component names and values. It also accepts variables that are derived from ```traces```. If ```{name}``` is specified in a value in ```defs```, it will be substituted by the full name of the trace. If ```{nameN}``` is specified in a value in ```defs```, it will be substituted by the Nth part of the name of the trace, when split by comma or space.
 
     Examples:
 
@@ -164,19 +164,19 @@ run
         "sense_100mA": { "RIsense": "50" },
     },
     ...
-    "run": [
-        {
+    "jobs": {
+        "job1" : {
             ...
-            "tracedefs": ["sense_{name}"],
+            "defs": [{"C20": "10p"}, "sense_{name}"],
             "traces": ["1uA", "10uA", "100uA", "1mA", "10mA", "100mA"]
     ...
 ```
 
 ```json
-  "run": [
-    {
+  "jobs": {
+    "job1" : {
       ...
-      "tracedefs": [
+      "defs": [
         {
           "XU6": "{name1}",
           "C3": "{name2}",
@@ -189,11 +189,6 @@ run
         "OPAx145, 27pf, 0pf",
     ...
 ```
-
-# About use_asc
-
-This has various issues. I have detected problems with AC analysis and vertical directives. See https://github.com/nunobrum/spicelib/issues.
-
 
 # Examples of graphs
 
