@@ -839,7 +839,8 @@ if __name__ == "__main__":
 
     logger.info(f"Running simulations, on netlist \"{model_fname}\".")
     if len(my_jobs) != 0:
-        logger.info(f"Limiting to jobs with names {', '.join(f'\"{w}\"' for w in my_jobs)}.")
+        jobnames = ', '.join(f'\"{w}\"' for w in my_jobs)
+        logger.info(f"Limiting to jobs with names {jobnames}.")
         
     if "description" in CONFIG:
         description = CONFIG["description"]
