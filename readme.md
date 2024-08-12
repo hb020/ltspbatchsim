@@ -36,35 +36,33 @@ Example:
 See the output of ```python3 ltspbatchsim.py -h``` for more info.
 
 ```text
-usage: ltspbatchsim.py [-h] [--ltspicepath LTSPICEPATH] [--outdir OUTDIR] [--use_asc] [--keep_nets] [--keep_logs]
-                       [--keep_raw] [--single_bode] [--dense]
+usage: ltspbatchsim.py [-h] [-v] [--log] [--ltspicepath LTSPICEPATH] [--winepath WINEPATH] [--outdir OUTDIR] [--dryrun] [--use_asc] [--keep_simfiles]
+                       [--keep_logs] [--keep_raw] [--single_bode] [--dense]
                        config_file [job_name ...]
 
 Runs one or more LTSpice simulations based on config from a json file. Will use LTSpice installed under wine.
 
 positional arguments:
-  config_file           Name of the config json file. Default: 'ltspbatchsim.json'
-  job_name              Name of the job(s). If left empty: all jobs will be run. 
-                        Wildcards can be used, but please escape
-                        the * and ? to avoid shell expansion. Example of good use in shell: "test_OPA189\*", which will be passed on to this program as "test_OPA189*".
+  config_file           Name of the config json file. Default: 'ltspbatchsim.json'.
+  job_name              Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell
+                        expansion. Example of good use in shell: "test_OPA189\*", which will be passed on to this program as "test_OPA189*".
 
 options:
   -h, --help            show this help message and exit
+  -v, --verbose         Be verbose
+  --log                 Log to file, not to console. If set, will log to "{config_file}.log", in append mode.
   --ltspicepath LTSPICEPATH
-                        Path of ltspice. Default: '/Users/me/.wine/drive_c/Users/me/AppData/Local/Programs/ADI/LTspice/LTspice.exe'
-  --outdir OUTDIR       Output directory for the graphs, also work directory. Default: './batchsim/'
-  --use_asc             Run the simulations as usual, but do that using .asc files. 
-                        This is somewhat slower, and has various issues (see
-                        spicelib issues on github), but can be useful for 
-                        diving into problems detected with the simulations, as it keeps the
-                        .asc files after the simulations.
-  --keep_nets           After the runs, keep the netlists.
+                        Path of ltspice. Default: '/Users/me/.wine/drive_c/users/me/AppData/Local/Programs/ADI/LTspice/LTspice.exe'.
+  --winepath WINEPATH   Path of wine, if used. Default: 'wine'.
+  --outdir OUTDIR       Output directory for the graphs, also work directory. Default: './batchsim/'.
+  --dryrun              Do not run the simulations, just generate the simulation input files. This implies --keep_simfiles and can be best used with
+                        --use_asc.
+  --use_asc             Run the simulations directly from .asc files, not from .net files. There may be some bugs, so use with caution.
+  --keep_simfiles       After the runs, keep the simulation input files, be it .net or .asc (when used with --use_asc).
   --keep_logs           After the runs, keep the spice run logs.
   --keep_raw            After the runs, keep the .raw files.
-  --single_bode         Keep AC analysis bode plots in the same graph, instead of 
-                        having gain and phase in separate columns.
-  --dense               Use this if the graph is dense. It will dash the lines, making 
-                        distinction easier. Not used with '--single_bode'
+  --single_bode         Keep AC analysis bode plots in the same graph, instead of having gain and phase in separate columns.
+  --dense               Use this if the graph is dense. It will dash the lines, making distinction easier. Not used with '--single_bode'.
 ```
 
 # the JSON config file format

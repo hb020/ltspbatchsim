@@ -67,20 +67,24 @@ def tmp_filenames_register(fname: str):
     tmp_filenames.append(fname)
     
 
-def tmp_filenames_cleanup(keep_nets: bool = False, keep_logs: bool = False, keep_raw: bool = False):
+def tmp_filenames_cleanup(keep_asc: bool = False, keep_net: bool = False, keep_log: bool = False, keep_raw: bool = False):
     """Clean up the temporary files, allow some files to be kept
 
-    :param keep_nets: Keep ".net" files, defaults to False
-    :type keep_nets: bool, optional
-    :param keep_logs: Keep ".log" files, defaults to False
-    :type keep_logs: bool, optional
+    :param keep_asc: Keep ".asc" files, defaults to False
+    :type keep_asc: bool, optional
+    :param keep_net: Keep ".net" files, defaults to False
+    :type keep_net: bool, optional
+    :param keep_log: Keep ".log" files, defaults to False
+    :type keep_log: bool, optional
     :param keep_raw: Keep ".raw" files, defaults to False
     :type keep_raw: bool, optional
     """
     for fname in tmp_filenames:
-        if not keep_nets:
+        if not keep_asc:
+            delfiles(f"{fname}*.asc")            
+        if not keep_net:
             delfiles(f"{fname}*.net")
-        if not keep_logs:
+        if not keep_log:
             delfiles(f"{fname}*.log")
         if not keep_raw:
             delfiles(f"{fname}*.raw")
@@ -286,7 +290,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
             model_fname: str = "", defaultac: str = "", 
             defaulttransients: list = [], defaultlabels: list = [], 
             single_bode: bool = False, use_asc: bool = False, dense: bool = False, 
-            defaultaltsolver: bool = False, timeout: int = None) -> bool:
+            defaultaltsolver: bool = False, timeout: int = None, dryrun: bool = False) -> bool:
     """Run a simulation job, and create a graph from the results.
 
     :param job: Job object, from config file. The name of the job is to be set as the "name" element
@@ -314,12 +318,14 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     :type use_asc: bool, optional
     :param dense: Pack the graph densely. Defaults to False
     :type dense: bool, optional
-    :param defaultaltsolver: Use the Alt solver, defaults to False
+    :param defaultaltsolver: Use the Alt solver. Defaults to False
     :type defaultaltsolver: bool, optional
-    :param timeout: Run timeout in seconds, defaults to None
+    :param timeout: Run timeout in seconds. Defaults to None
     :type timeout: int, optional
+    :param dryrun: Do not run the simulations, just generate the simulation input files. Defaults to False
+    :type dryrun: bool, optional
     :return: True if succeeded. If not, it will log the error.
-    :rtype: bool
+    :rtype: bool    
     """
     nrcols = 0
     nrrows = 0
@@ -588,103 +594,106 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         netlist.save_netlist(netlistfile)
         
         logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}'")
-        opts = []
-        if alt_solver:
-            opts.append('-alt')
-        else:
-            opts.append('-norm')
-            
-        with open(processlogfile, "w") as outfile:
-            # keep timing, so I can print the process time
-            starttm = time.time()
-            try:
-                mySimulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
-            except subprocess.TimeoutExpired:
-                logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
-                return False
-            endtm = time.time()
-            logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds.")
         
-        # interpret the simulation results
-        LTR = spicelib.RawRead(rawfile)
-        # LTR.to_excel("out.xlsx")
-        for row in range(0, nrrows):
-            y = LTR.get_trace(ylabels[row])
-            if ac_analysis:
-                xlabel = "frequency"
+        if not dryrun:
+            opts = []
+            if alt_solver:
+                opts.append('-alt')
             else:
-                xlabel = "time"
-            x = LTR.get_trace(xlabel)
-            steps = LTR.get_steps()
+                opts.append('-norm')
+                
+            with open(processlogfile, "w") as outfile:
+                # keep timing, so I can print the process time
+                starttm = time.time()
+                try:
+                    mySimulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
+                except subprocess.TimeoutExpired:
+                    logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
+                    return False
+                endtm = time.time()
+                logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds.")
             
-            for step in range(len(steps)):
-                t = x.get_wave(step)
-                v = y.get_wave(step)
-                for col in range(0, nrcols):
-                    c = column_definitions[col]
-                    t_dense = dense
-                    if ("dense" in c) and c["dense"]:
-                        t_dense = True
-                    if t_dense:
-                        linestyle = dense_linestyle
-                    else:
-                        linestyle = 'solid'
+            # interpret the simulation results
+            LTR = spicelib.RawRead(rawfile)
+            # LTR.to_excel("out.xlsx")
+            for row in range(0, nrrows):
+                y = LTR.get_trace(ylabels[row])
+                if ac_analysis:
+                    xlabel = "frequency"
+                else:
+                    xlabel = "time"
+                x = LTR.get_trace(xlabel)
+                steps = LTR.get_steps()
+                
+                for step in range(len(steps)):
+                    t = x.get_wave(step)
+                    v = y.get_wave(step)
+                    for col in range(0, nrcols):
+                        c = column_definitions[col]
+                        t_dense = dense
+                        if ("dense" in c) and c["dense"]:
+                            t_dense = True
+                        if t_dense:
+                            linestyle = dense_linestyle
+                        else:
+                            linestyle = 'solid'
 
-                    if ac_analysis:
-                        # I always have 2 axis, no matter what nrcols says. 
-                        # so skip column 1, and do both at the same time
-                        # this construction prevents extra code in case of single_bode
-                        if col == 0:                            
-                            ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename, linestyle=linestyle)
-                            if single_bode:
-                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle='dashed')
-                            else:
-                                ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle=linestyle)   
-                    else:
-                        startrecording = c["startrecording_nsecs"] / 1000000000.0
-                        endrecording = c["endrecording_nsecs"] / 1000000000.0
-                        startidx = None
-                        endidx = None
-                        for sample in range(len(t)):
+                        if ac_analysis:
+                            # I always have 2 axis, no matter what nrcols says. 
+                            # so skip column 1, and do both at the same time
+                            # this construction prevents extra code in case of single_bode
+                            if col == 0:                            
+                                ax[row][0].plot(np.real(t), 20.0 * np.log10(np.abs(v)), label=tracename, linestyle=linestyle)
+                                if single_bode:
+                                    ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle='dashed')
+                                else:
+                                    ax[row][1].plot(np.real(t), np.degrees(np.angle(v)), label=tracename, linestyle=linestyle)   
+                        else:
+                            startrecording = c["startrecording_nsecs"] / 1000000000.0
+                            endrecording = c["endrecording_nsecs"] / 1000000000.0
+                            startidx = None
+                            endidx = None
+                            for sample in range(len(t)):
+                                if startidx is None:
+                                    if t[sample] >= startrecording:
+                                        startidx = max(0, sample - 1)
+                                if endidx is None:
+                                    if t[sample] > endrecording:
+                                        endidx = min(len(t), sample + 1)
                             if startidx is None:
-                                if t[sample] >= startrecording:
-                                    startidx = max(0, sample - 1)
+                                startidx = 0
                             if endidx is None:
-                                if t[sample] > endrecording:
-                                    endidx = min(len(t), sample + 1)
-                        if startidx is None:
-                            startidx = 0
-                        if endidx is None:
-                            endidx = len(t)
-                        ax[row][col].plot(t[startidx:endidx] - startrecording, v[startidx:endidx], label=tracename, linestyle=linestyle)
+                                endidx = len(t)
+                            ax[row][col].plot(t[startidx:endidx] - startrecording, v[startidx:endidx], label=tracename, linestyle=linestyle)
 
-    logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Creating graph.")
-    for row in range(0, nrrows):
-        for col in range(0, nrcols):
-            if row == 0 and col == 0:
-                title = jobname
-            else:
-                title = None
-            c = column_definitions[col]                
-            if ac_analysis:
-                start_freq = c["start_freq"]
-                end_freq = c["end_freq"]
-                x_scale = c["method"]
-                # I always have 2 axis, no matter what nrcols says. 
-                # so skip column 1, and do both at the same time
-                # this construction prevents extra code in case of single_bode
-                if col == 0:
-                    format_axis_ac(ax[row][0], True, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
-                    format_axis_ac(ax[row][1], False, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
-            else:
-                startrecording_s = c["startrecording_nsecs"] / 1000000000.0
-                visible_s = c["visible_nsecs"] / 1000000000.0
-                size = c["niceformat"]
-                format_axis_transient(ax[row][col], size, startrecording_s, visible_s, ylabels[row], title)
+    if not dryrun:
+        logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Creating graph.")
+        for row in range(0, nrrows):
+            for col in range(0, nrcols):
+                if row == 0 and col == 0:
+                    title = jobname
+                else:
+                    title = None
+                c = column_definitions[col]                
+                if ac_analysis:
+                    start_freq = c["start_freq"]
+                    end_freq = c["end_freq"]
+                    x_scale = c["method"]
+                    # I always have 2 axis, no matter what nrcols says. 
+                    # so skip column 1, and do both at the same time
+                    # this construction prevents extra code in case of single_bode
+                    if col == 0:
+                        format_axis_ac(ax[row][0], True, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
+                        format_axis_ac(ax[row][1], False, single_bode, x_scale, start_freq, end_freq, ylabels[row], title)
+                else:
+                    startrecording_s = c["startrecording_nsecs"] / 1000000000.0
+                    visible_s = c["visible_nsecs"] / 1000000000.0
+                    size = c["niceformat"]
+                    format_axis_transient(ax[row][col], size, startrecording_s, visible_s, ylabels[row], title)
 
-    imagefile = f"{basename}.png"
-    fig.savefig(fname=imagefile, dpi=300)
-    logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", results are in \"{imagefile}\"")
+        imagefile = f"{basename}.png"
+        fig.savefig(fname=imagefile, dpi=300)
+        logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", results are in \"{imagefile}\"")
     return True
     
 
@@ -722,27 +731,30 @@ if __name__ == "__main__":
                     
     parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
                                      "Will use LTSpice installed under wine.")
-    parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'") 
+    parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'.") 
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, "
                         "but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", "
                         "which will be passed on to this program as \"test_OPA189*\".") 
-    parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'")
+    parser.add_argument('-v', '--verbose', default='', help="Be verbose", action="store_const", dest="loglevel", const='v')
+    parser.add_argument('-vv', '--debug', default='', help="Be more verbose", action="store_const", dest="loglevel", const='vv')
+    parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. "
+                        "If set, will log to \"{config_file}.log\", in append mode.")
+    parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'.")
     if sys.platform == 'linux' or sys.platform == 'darwin':
-        parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'")
-    parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'")
-    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations as usual, but do that using .asc files. "
-                        "This is somewhat slower, but can be useful for diving into problems detected with the simulations, "
-                        "as it keeps the .asc files after the simulations.")
-    parser.add_argument('--keep_nets', default=False, action='store_true', help="After the runs, keep the netlists.")
+        parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'.")
+    parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'.")
+    parser.add_argument('--dryrun', default=False, action='store_true', help="Do not run the simulations, just generate the simulation input files. "
+                        "This implies --keep_simfiles and can be best used with --use_asc.")
+    parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations directly from .asc files, not from .net files. "
+                        "There may be some bugs, so use with caution.")
+    parser.add_argument('--keep_simfiles', default=False, action='store_true', help="After the runs, keep the simulation input files, "
+                        "be it .net or .asc (when used with --use_asc).")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
     parser.add_argument('--keep_raw', default=False, action='store_true', help="After the runs, keep the .raw files.")
     parser.add_argument('--single_bode', default=False, action='store_true', help="Keep AC analysis bode plots in the same graph, "
                         "instead of having gain and phase in separate columns.")
     parser.add_argument('--dense', default=False, action='store_true', help="Use this if the graph is dense. "
-                        "It will dash the lines, making distinction easier. Not used with '--single_bode'")
-    parser.add_argument('-v', '--verbose', default=logging.INFO, help="Be verbose", action="store_const", dest="loglevel", const=logging.DEBUG)
-    parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. "
-                        "If set, will log to \"{config_file}.log\", in append mode.")
+                        "It will dash the lines, making distinction easier. Not used with '--single_bode'.")
     
     # use_asc is not preferred, as spicelib has some limitations in the spicelib.AscEditor.
     
@@ -760,23 +772,32 @@ if __name__ == "__main__":
     if not os.path.isfile(args.config_file):
         print(f"ERROR: Config file \"{args.config_file}\" cannot be found. Please specify a valid path.")
         exit(1)
+
+    # default log levels
+    lib_loglevel = logging.WARNING
+    my_loglevel = logging.INFO
+    
+    # now set log level according to the arguments
+    if args.loglevel == 'v':
+        my_loglevel = logging.DEBUG
+        lib_loglevel = logging.INFO
+    elif args.loglevel == 'vv':
+        my_loglevel = logging.DEBUG
+        lib_loglevel = logging.DEBUG
         
     if args.log:
         fname, fext = os.path.splitext(args.config_file) 
         logfile = os.path.join(outdir, fname + ".log")
         print(f"logging to \"{logfile}\"")
         # configure logging
-        logging.basicConfig(filename=logfile, level=args.loglevel)
+        logging.basicConfig(filename=logfile, level=my_loglevel)
     else:
-        logging.basicConfig(level=args.loglevel)
+        logging.basicConfig(level=my_loglevel)
         
     logger = logging.getLogger(Path(__file__).stem)
-        
-    if args.loglevel == logging.DEBUG:
-        spicelib.set_log_level(logging.INFO)
-    else:
-        spicelib.set_log_level(logging.WARNING)
-                
+    
+    spicelib.set_log_level(lib_loglevel)
+                        
     ltspice_path = args.ltspicepath
     if sys.platform == 'linux' or sys.platform == 'darwin':
         winepath = args.winepath
@@ -794,12 +815,16 @@ if __name__ == "__main__":
             logger.error(f"wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
             exit(1)            
 
+    # set the path for the ltspice executable
     new_spice_exe = [ltspice_path]
     if winepath:
         new_spice_exe = [winepath, ltspice_path]
     if mySimulator.spice_exe != new_spice_exe:
         mySimulator.spice_exe = new_spice_exe
         mySimulator.process_name = None  # let the lib find out the process name
+
+    # set the paths for the libraries.                  
+    spicelib.AscEditor.prepare_for_simulator(mySimulator)
                     
     load_config(args.config_file)
     prepare()
@@ -885,9 +910,18 @@ if __name__ == "__main__":
                        use_asc=args.use_asc,
                        dense=args.dense,
                        defaultaltsolver=defaultaltsolver,
-                       timeout=timeout
+                       timeout=timeout,
+                       dryrun=args.dryrun
                        ): 
             logger.error("Error: bailing out.")
             exit(1)
-            
-    tmp_filenames_cleanup(args.keep_nets, args.keep_logs, args.keep_raw)
+    
+    # cleanup afterwards
+    keep_asc = False
+    keep_net = False
+    if args.use_asc:
+        keep_asc = args.dryrun or args.keep_simfiles
+    else:
+        keep_net = args.dryrun or args.keep_simfiles
+        
+    tmp_filenames_cleanup(keep_asc=keep_asc, keep_net=keep_net, keep_log=args.keep_logs, keep_raw=args.keep_raw)
