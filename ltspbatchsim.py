@@ -407,10 +407,13 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
             transients = defaulttransients
         
         maxtime_nsecs = 0
+        minstep_nsecs = -1  # "undef"
         # transient time format is a subset of the spice format for .TRAN: 
         # "<Tstop>"
-        # "0 <Tstop> Tstart" (=> Tstep must be 0, dTmax is not used)
+        # "<Tstep> <Tstop>"
+        # "<Tstep> <Tstop> <Tstart>" (=> dTmax is not used)
         for t in transients:
+            step_nsecs = -1
             startrecording_nsecs = 0
             endrecording_nsecs = 0
             visible_nsecs = 0
@@ -424,28 +427,31 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
             tparts = [x.strip() for x in t.split(' ') if x]
             # interpret the numerical parts
             if len(tparts) == 1:
-                startrecording_nsecs = 0
+                step_nsecs = -1
                 endrecording_nsecs = time2nsecs(tparts[0])
+                startrecording_nsecs = 0
                 visible_nsecs = endrecording_nsecs
             elif len(tparts) == 2:
-                startrecording_nsecs = time2nsecs(tparts[1])
-                endrecording_nsecs = time2nsecs(tparts[0])
-                visible_nsecs = endrecording_nsecs - startrecording_nsecs
-            elif len(tparts) == 3 and tparts[0] == "0":
-                startrecording_nsecs = time2nsecs(tparts[2])
+                step_nsecs = time2nsecs(tparts[0])
                 endrecording_nsecs = time2nsecs(tparts[1])
+                startrecording_nsecs = 0
+                visible_nsecs = endrecording_nsecs
+            elif len(tparts) == 3:
+                step_nsecs = time2nsecs(tparts[0])
+                endrecording_nsecs = time2nsecs(tparts[1])                
+                startrecording_nsecs = time2nsecs(tparts[2])
                 visible_nsecs = endrecording_nsecs - startrecording_nsecs
             else:
                 startrecording_nsecs = -1  # signal error
             
             if startrecording_nsecs < 0 or endrecording_nsecs < 0:
                 logger.error(f"Unsupported transient time format \"{t}\".")
-                logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 <Tstop> Tstart\". (First and last forms are like LTSpice .TRAN)")
+                logger.error("  Format must be either \"Tstop\" or \"Tstep Tstop\" or \"Tstep Tstop Tstart\". (Like LTSpice .TRAN)")
                 return False
 
             if visible_nsecs <= 0:
                 logger.error(f"Unsupported transient time format \"{t}\", duration time cannot be 0 or negative.")
-                logger.error("  Format must be either \"Tstop\" or \"Tstop Tstart\" or \"0 Tstop Tstart\". (First and last forms are like LTSpice .TRAN)")
+                logger.error("  Format must be either \"Tstop\" or \"Tstep Tstop\" or \"Tstep Tstop Tstart\". (Like LTSpice .TRAN)")
                 return False
             
             column_definitions.append({"name": t,
@@ -455,8 +461,21 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                                        "dense": t_dense})
             if maxtime_nsecs < endrecording_nsecs:
                 maxtime_nsecs = endrecording_nsecs
-        # add some more, sometimes I get stange effects at the end
+                
+            # tstep is specified?
+            if step_nsecs >= 0:
+                # tstep is specified here
+                if minstep_nsecs < 0 or minstep_nsecs > step_nsecs:
+                    # no minstep yet or a smaller tstep than given previously?
+                    minstep_nsecs = step_nsecs
+        
+        # read all times.
+        # add some more to the max time, sometimes I get stange effects at the end
         maxtime_nsecs = int(maxtime_nsecs * 1.1)
+        # do not use 0 as minstep, as it will freak out the simulator
+        # default = 1ns
+        if minstep_nsecs < 1:
+            minstep_nsecs = 1
                 
     nrcols = len(column_definitions)
     # print(column_definitions)
@@ -530,7 +549,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         if ac_analysis:
             netlist.add_instruction(f".ac {ac}")
         else:
-            netlist.add_instruction(f".tran {maxtime_nsecs}n")        
+            netlist.add_instruction(f".tran {minstep_nsecs}n {maxtime_nsecs}n")        
         
         # create "dense" line style. Decide later on if it you take it or not 
         if (nrtraces == 1) or (traceidx == 0):
@@ -546,6 +565,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         else:
             netlistfile = f"{basename}_{safe_tracename}.net"
         rawfile = f"{basename}_{safe_tracename}.raw"
+        spicelogfile = f"{basename}_{safe_tracename}.log"
         processlogfile = f"{basename}_{safe_tracename}_process.log"
         
         s = "defs"
@@ -614,6 +634,24 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                 logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds.")
             
             # interpret the simulation results
+            if not os.path.exists(rawfile):
+                logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' failed. The last line of the log file \"{spicelogfile}\":")                
+                # default log:
+                last_line = f"(No log file \"{spicelogfile}\" found.)"
+                if os.path.exists(spicelogfile):
+                    with open(spicelogfile, "rt") as f:
+                        last_lines = f.readlines()
+                        # use one of the 2 last lines, if they are not empty
+                        if len(last_lines) >= 2:
+                            last_line1 = last_lines[-1].strip()
+                            last_line2 = last_lines[-2].strip()
+                            if len(last_line1) > 1:
+                                last_line = last_line1
+                            elif len(last_line2) > 1:
+                                last_line = last_line2
+                logger.error(last_line)
+                return False
+            
             LTR = spicelib.RawRead(rawfile)
             # LTR.to_excel("out.xlsx")
             for row in range(0, nrrows):

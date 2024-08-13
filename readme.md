@@ -74,6 +74,7 @@ ylabel: str
 ylabels: [str, ...]
 ac: str
 transients: [str, ...]
+tstep: str
 defs: dict(dict)
 alt: int|bool
 timeout: int
@@ -102,9 +103,11 @@ jobs: dict(dict)
 
 * ```transients```: the default values for the time sections of all transient analysis jobs. Can be overriden in the jobs. Ignored when AC analysis is requested by the job.
   
-    Format: ```[str, ...]```, where each ```str```, inspired by the spice ```.tran``` op command: "Tstop" or "Tstop Tstart" or "0 Tstop Tstart" (=> Tstep must be 0 if specified, dTmax is not used). Additionally, a 'd' can be added at the end designating that this a dense graph, see '--dense'.
+    Format: ```[str, ...]```, where each ```str```, based on the spice ```.tran``` op command: "Tstop" or "Tstep Tstop" or "Tstep Tstop Tstart" (=> dTmax is not used). Additionally, a 'd' can be added at the end designating that this a dense graph, see '--dense'.
+
+    For all of these times, the resolution is 1 nanosecond. The minimum and the default Tstep is 1ns. You can safely specify '0' as Tstep, and that will force 1 nanosecond.
   
-    Example: ```["10u", "1010u 1000u", "2011u 2001u", "3011u 3001u", "4m d"]``` , creating a large graph with the following sub-graphs in columns:
+    Example: ```["10u", "0 1010u 1000u", "0 2011u 2001u", "0 3011u 3001u", "4m d"]``` , creating a large graph with the following sub-graphs in columns:
   * 10 µsecs wide, starting at T0
   * 10 µsecs wide, starting at 1 msecs
   * 10 µsecs wide, starting at 2.001 msecs
