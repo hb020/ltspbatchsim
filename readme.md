@@ -36,28 +36,32 @@ Example:
 See the output of ```python3 ltspbatchsim.py -h``` for more info.
 
 ```text
-usage: ltspbatchsim.py [-h] [-v] [--log] [--ltspicepath LTSPICEPATH] [--winepath WINEPATH] [--outdir OUTDIR] [--dryrun] [--use_asc] [--keep_simfiles]
-                       [--keep_logs] [--keep_raw] [--single_bode] [--dense]
+usage: ltspbatchsim.py [-h] [-v] [-vv] [--log] [--sim {ltspice,ngspice}] [--spicepath SPICEPATH] [--winepath WINEPATH] [--showpaths] [--outdir OUTDIR]
+                       [--dryrun] [--use_asc] [--keep_simfiles] [--keep_logs] [--keep_raw] [--single_bode] [--dense]
                        config_file [job_name ...]
 
-Runs one or more LTSpice simulations based on config from a json file. Will use LTSpice installed under wine.
+Runs one or more LTSpice or NGSpice simulations based on config from a json file.
 
 positional arguments:
   config_file           Name of the config json file. Default: 'ltspbatchsim.json'.
-  job_name              Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid shell
-                        expansion. Example of good use in shell: "test_OPA189\*", which will be passed on to this program as "test_OPA189*".
+  job_name              Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, but please escape the * and ? to avoid
+                        shell expansion. Example of good use in shell: "test_OPA189\*", which will be passed on to this program as "test_OPA189*".
 
 options:
   -h, --help            show this help message and exit
   -v, --verbose         Be verbose
+  -vv, --debug          Be more verbose
   --log                 Log to file, not to console. If set, will log to "{config_file}.log", in append mode.
-  --ltspicepath LTSPICEPATH
-                        Path of ltspice. Default: '/Users/me/.wine/drive_c/users/me/AppData/Local/Programs/ADI/LTspice/LTspice.exe'.
-  --winepath WINEPATH   Path of wine, if used. Default: 'wine'.
+  --sim {ltspice,ngspice}
+                        Simulator to be used, default: 'ltspice'.
+  --spicepath SPICEPATH
+                        Path of the spice executable.
+  --winepath WINEPATH   Path of the wine executable, if used.
+  --showpaths           Show the executable and library paths that can be detected automatically.
   --outdir OUTDIR       Output directory for the graphs, also work directory. Default: './batchsim/'.
-  --dryrun              Do not run the simulations, just generate the simulation input files. This implies --keep_simfiles and can be best used with
-                        --use_asc.
-  --use_asc             Run the simulations directly from .asc files, not from .net files. There may be some bugs, so use with caution.
+  --dryrun              Do not run the simulations, just generate the simulation input files. This implies --keep_simfiles and can be used with --use_asc.
+  --use_asc             Run the simulations directly from .asc files, not from .net files. There may be some bugs, so use with caution. This only works
+                        with LTSpice.
   --keep_simfiles       After the runs, keep the simulation input files, be it .net or .asc (when used with --use_asc).
   --keep_logs           After the runs, keep the spice run logs.
   --keep_raw            After the runs, keep the .raw files.
@@ -135,7 +139,7 @@ jobs: dict(dict)
     }
 ```
 
-* ```alt```: (true|false|1|0) Determine the use of the normal solver or the alternate solver. This is the default value. Can be overriden in the jobs.
+* ```alt```: (true|false|1|0) Determine the use of the normal solver or the alternate solver. This is the default value. Can be overriden in the jobs. Only used for ltspice. Ignored on other simulators.
 * ```jobs```: the definition of the jobs, a dictionary with job definitions. The key of the leements in the dict is the name of the job.
 * ```job.op```: the type of analysis. Set to 'ac[N]' for AC analysis.
   * 'ac' for AC analysis bode plot creation according to the ```--single_bode``` command line setting

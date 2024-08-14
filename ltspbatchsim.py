@@ -2,6 +2,8 @@ import time
 import numpy as np
 import spicelib
 from spicelib.simulators.ltspice_simulator import LTspice
+from spicelib.simulators.ngspice_simulator import NGspiceSimulator
+from spicelib.sim.simulator import Simulator
 from matplotlib import pyplot as plt
 from matplotlib import axes
 from matplotlib.ticker import EngFormatter, AutoMinorLocator, FormatStrFormatter
@@ -20,18 +22,6 @@ from pathlib import Path
 # Run a series of simulations on a model, with varying variable values. Puts the result in one single png (per job).
 
 outdir = "./batchsim/"
-
-
-class mySimulator(LTspice):
-    """Base class for the simulator. 
-    This is a dummy class, as the LTspice class is already defined in spicelib. 
-    It can be extended here, if needed, for example to force the paths or the process name.
-    """
-    # one could force the paths here
-    # spice_exe = []
-    # process_name = None
-    pass
-
 
 # default config file
 default_config_file = "ltspbatchsim.json"
@@ -287,7 +277,7 @@ def freq2Hz(t: str) -> float:
 
 
 def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True, 
-            model_fname: str = "", defaultac: str = "", 
+            model_fname: str = "", simulator: Simulator = LTspice, defaultac: str = "", 
             defaulttransients: list = [], defaultlabels: list = [], 
             single_bode: bool = False, use_asc: bool = False, dense: bool = False, 
             defaultaltsolver: bool = False, timeout: int = None, dryrun: bool = False) -> bool:
@@ -303,6 +293,8 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     :type take_me: bool, optional
     :param model_fname: File name of the model, defaults to ""
     :type model_fname: str, optional
+    :param simulator: The simulator to be used, defaults to LTspice
+    :type simulator: Simulator, optional
     :param defaultac: Values for the AC analysis. Can be overriden in the job. Format is identical to the spice ```.ac``` op command. \
         Ignored when Transient analysis is requested by the job. Defaults to ""
     :type defaultac: str, optional
@@ -531,7 +523,11 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     if use_asc:
         netlist = spicelib.AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
     else:
-        netlist = spicelib.SpiceEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .net file
+        if isinstance(simulator, LTspice):
+            encoding = "autodetect"  # LTSpice can use a lot of different encodings, even on the same platform
+        else:
+            encoding = "utf-8"
+        netlist = spicelib.SpiceEditor(f"./{model_fname}", encoding=encoding)  # Open the Spice Model, and creates the tailored .net file
 
     basename = os.path.join(outdir, jobname.replace(' ', '_'))
     tmp_filenames_register(basename)
@@ -617,16 +613,17 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         
         if not dryrun:
             opts = []
-            if alt_solver:
-                opts.append('-alt')
-            else:
-                opts.append('-norm')
+            if isinstance(simulator, LTspice):
+                if alt_solver:
+                    opts.append('-alt')
+                else:
+                    opts.append('-norm')
                 
             with open(processlogfile, "w") as outfile:
                 # keep timing, so I can print the process time
                 starttm = time.time()
                 try:
-                    mySimulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
+                    simulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
                 except subprocess.TimeoutExpired:
                     logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
                     return False
@@ -755,20 +752,46 @@ def load_config(config_file: str):
     CONFIG = json.load(f)
 
 
+def show_paths_of_simulator(simulator: Simulator, name: str):
+    """Show the paths of the simulator.
+
+    :param simulator: The simulator to show the paths of
+    :type simulator: Simulator
+    :param name: The name of the simulator
+    :type name: str
+    """
+    print(f"Simulator: {name}")    
+    if not simulator.is_available():
+        print("  Not found.")
+        return
+    if len(simulator.spice_exe) == 1:
+        winepath = None
+        spice_path = simulator.spice_exe[0]
+    else:
+        winepath = simulator.spice_exe[0]
+        spice_path = simulator.spice_exe[1]
+    if winepath:
+        print(f"  Wine path: '{winepath}'")
+    print(f"  Spice path: '{spice_path}'")
+    print(f"  Spice process name: '{simulator.process_name}'")
+    print(f"  Default library paths: {simulator.get_default_library_paths()}")
+
+
+def show_paths():
+    show_paths_of_simulator(LTspice, 'LTspice')
+    show_paths_of_simulator(NGspiceSimulator, 'NGSpice')
+    
+
 if __name__ == "__main__":
     """Main program.
     """
-
-    # get path from LTSpice, as determined by spicelib
-    if len(mySimulator.spice_exe) == 1:
-        winepath = None
-        ltspice_path = mySimulator.spice_exe[0]
-    else:
-        winepath = mySimulator.spice_exe[0]
-        ltspice_path = mySimulator.spice_exe[1]
-                    
-    parser = argparse.ArgumentParser(description="Runs one or more LTSpice simulations based on config from a json file. "
-                                     "Will use LTSpice installed under wine.")
+    # default values
+    DEFAULT_SPICE = "ltspice"
+    SPICE_CHOICES = ['ltspice', 'ngspice']
+    
+    simulator = None       
+       
+    parser = argparse.ArgumentParser(description="Runs one or more LTSpice or NGSpice simulations based on config from a json file.")
     parser.add_argument('config_file', default=default_config_file, help=f"Name of the config json file. Default: '{default_config_file}'.") 
     parser.add_argument('job_name', default="", nargs="*", help="Name of the job(s) to run. If left empty: all jobs will be run. Wildcards can be used, "
                         "but please escape the * and ? to avoid shell expansion. Example of good use in shell: \"test_OPA189\\*\", "
@@ -777,14 +800,17 @@ if __name__ == "__main__":
     parser.add_argument('-vv', '--debug', default='', help="Be more verbose", action="store_const", dest="loglevel", const='vv')
     parser.add_argument('--log', default=False, action='store_true', help="Log to file, not to console. "
                         "If set, will log to \"{config_file}.log\", in append mode.")
-    parser.add_argument('--ltspicepath', default=ltspice_path, help=f"Path of ltspice. Default: '{ltspice_path}'.")
+    parser.add_argument('--sim', type=str.lower, default=DEFAULT_SPICE, choices=SPICE_CHOICES,
+                        help=f"Simulator to be used, default: '{DEFAULT_SPICE}'.")
+    parser.add_argument('--spicepath', default=None, help="Path of the spice executable.")
     if sys.platform == 'linux' or sys.platform == 'darwin':
-        parser.add_argument('--winepath', default=winepath, help=f"Path of wine, if used. Default: '{winepath}'.")
+        parser.add_argument('--winepath', default=None, help="Path of the wine executable, if used.")
+    parser.add_argument('--showpaths', default=False, action='store_true', help="Show the executable and library paths that can be detected automatically.")
     parser.add_argument('--outdir', default=outdir, help=f"Output directory for the graphs, also work directory. Default: '{outdir}'.")
     parser.add_argument('--dryrun', default=False, action='store_true', help="Do not run the simulations, just generate the simulation input files. "
-                        "This implies --keep_simfiles and can be best used with --use_asc.")
+                        "This implies --keep_simfiles and can be used with --use_asc.")
     parser.add_argument('--use_asc', default=False, action='store_true', help="Run the simulations directly from .asc files, not from .net files. "
-                        "There may be some bugs, so use with caution.")
+                        "There may be some bugs, so use with caution. This only works with LTSpice.")
     parser.add_argument('--keep_simfiles', default=False, action='store_true', help="After the runs, keep the simulation input files, "
                         "be it .net or .asc (when used with --use_asc).")
     parser.add_argument('--keep_logs', default=False, action='store_true', help="After the runs, keep the spice run logs.")
@@ -798,6 +824,10 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    if args.showpaths:
+        show_paths()
+        exit(0)
+        
     # this all is before the logging setup, so use print in case of problems
     outdir = args.outdir
     if not (outdir.endswith('\\') or outdir.endswith('/')):
@@ -836,33 +866,60 @@ if __name__ == "__main__":
     
     spicelib.set_log_level(lib_loglevel)
                         
-    ltspice_path = args.ltspicepath
+    spicepath = args.spicepath
     if sys.platform == 'linux' or sys.platform == 'darwin':
         winepath = args.winepath
-        if len(winepath) == 0:
+        if winepath and len(winepath) == 0:
             winepath = None
     else:
         winepath = None
         
-    if not os.path.isfile(ltspice_path):
-        logger.error(f"ltspice is not found under \"{ltspice_path}\". Please specify a valid path via --ltspicepath.")
+    if spicepath and not (os.path.isfile(spicepath) or shutil.which(spicepath)):
+        logger.error(f"spice is not found under \"{spicepath}\". Please specify a valid path via --spicepath.")
         exit(1)
         
-    if winepath:
-        if not shutil.which(winepath):
-            logger.error(f"wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
-            exit(1)            
+    if winepath and not (os.path.isfile(winepath) or shutil.which(winepath)):
+        logger.error(f"wine is not found under \"{winepath}\". Please specify a valid path via --winepath.")
+        exit(1)            
 
-    # set the path for the ltspice executable
-    new_spice_exe = [ltspice_path]
-    if winepath:
-        new_spice_exe = [winepath, ltspice_path]
-    if mySimulator.spice_exe != new_spice_exe:
-        mySimulator.spice_exe = new_spice_exe
-        mySimulator.process_name = None  # let the lib find out the process name
+    # determine the simulator
+    if args.sim == "ltspice":
+        simulator = LTspice        
+    if args.sim == "ngspice":
+        simulator = NGspiceSimulator
 
-    # set the paths for the libraries.                  
-    spicelib.AscEditor.prepare_for_simulator(mySimulator)
+    # set the path for the spice executable
+    if winepath or spicepath:
+        old_exe = simulator.spice_exe
+        new_winepath = None
+        new_spicepath = None
+        
+        if len(old_exe) == 1:
+            new_winepath = None
+            new_spicepath = old_exe[0]
+        if len(old_exe) == 2:
+            new_winepath = old_exe[0]
+            new_spicepath = old_exe[1]
+            
+        if winepath:
+            new_winepath = winepath
+        if spicepath:
+            new_spicepath = spicepath
+            
+        if new_winepath:
+            simulator.spice_exe = [new_winepath, new_spicepath]
+        else:
+            simulator.spice_exe = [new_spicepath]
+        simulator.process_name = simulator.guess_process_name(simulator.spice_exe[0])  # let the lib find out the process name
+
+    if not simulator.is_available():
+        logger.error(f"Cannot find the simulator at {simulator.spice_exe}.")
+        exit(1)
+    
+    # set the paths for the libraries.
+    if isinstance(simulator, LTspice):
+        spicelib.AscEditor.prepare_for_simulator(simulator)
+    spicelib.SpiceEditor.prepare_for_simulator(simulator)
                     
     load_config(args.config_file)
     prepare()
@@ -891,15 +948,21 @@ if __name__ == "__main__":
         if model_ext.lower() != ".asc":
             logger.error(f"You must provide a .asc file as model when you use --use_asc. The name \"{model_fname}\"is invalid.")
             exit(1)
+        if not isinstance(simulator, LTspice):
+            logger.error("This simulator does not handle .asc files. Use LTspice.")
+            exit(1)            
     else:
         if model_ext.lower() == ".asc":
+            if not isinstance(simulator, LTspice):
+                logger.error("This simulator does not handle .asc files. Use LTspice for those files.")
+                exit(1)            
             # convert to .net file
             logger.info(f"Creating the netlist for the schema \"{model_fname}\"")
             # make sure the log file goes to outdir
             processlogfile = os.path.join(outdir, f"{model_root}_create_netlist.log")
             tmp_filenames_register(processlogfile[:-4])  # add the log file to the list of files to clean up
             with open(processlogfile, "w") as outfile:
-                model_fname = mySimulator.create_netlist(model_fname, stdout=outfile, stderr=subprocess.STDOUT)
+                model_fname = simulator.create_netlist(model_fname, stdout=outfile, stderr=subprocess.STDOUT)
 
             if not os.path.isfile(model_fname):
                 logger.error(f"Cannot find netlist file \"{model_fname}\", something went wrong. See file {processlogfile}.")
@@ -940,6 +1003,7 @@ if __name__ == "__main__":
                 
         if not run_job(job, jobnr, nrjobs, 
                        take_me, 
+                       simulator=simulator,
                        model_fname=model_fname,
                        defaultac=defaultac, 
                        defaulttransients=defaulttransients, 
