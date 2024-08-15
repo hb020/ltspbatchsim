@@ -78,7 +78,6 @@ ylabel: str
 ylabels: [str, ...]
 ac: str
 transients: [str, ...]
-tstep: str
 defs: dict(dict)
 alt: int|bool
 timeout: int
