@@ -79,6 +79,9 @@ def tmp_filenames_cleanup(keep_asc: bool = False, keep_net: bool = False, keep_l
         if not keep_raw:
             delfiles(f"{fname}*.raw")
     
+
+def is_ltspice(simulator: Simulator) -> bool:
+    return "ltspice" in simulator.__name__.lower()
     
 # format the graph axis
 def format_axis_transient(ax: axes.Axes, size: int, offset_time_s: float, duration_time_s: float,
@@ -399,7 +402,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
             transients = defaulttransients
         
         maxtime_nsecs = 0
-        minstep_nsecs = -1  # "undef"
+        minstep_nsecs = 0  # "undef"
         # transient time format is a subset of the spice format for .TRAN: 
         # "<Tstop>"
         # "<Tstep> <Tstop>"
@@ -455,19 +458,23 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                 maxtime_nsecs = endrecording_nsecs
                 
             # tstep is specified?
-            if step_nsecs >= 0:
+            if step_nsecs > 0:
                 # tstep is specified here
-                if minstep_nsecs < 0 or minstep_nsecs > step_nsecs:
+                if minstep_nsecs <= 0 or minstep_nsecs > step_nsecs:
                     # no minstep yet or a smaller tstep than given previously?
                     minstep_nsecs = step_nsecs
         
         # read all times.
         # add some more to the max time, sometimes I get stange effects at the end
         maxtime_nsecs = int(maxtime_nsecs * 1.1)
-        # do not use 0 as minstep, as it will freak out the simulator
-        # default = 1ns
+        # do not use 0 as minstep on NGspice, as it will freak out the simulator
         if minstep_nsecs < 1:
-            minstep_nsecs = 1
+            if is_ltspice(simulator):  # LTspice can handle 0
+                minstep_nsecs = 0
+            else:
+                minstep_nsecs = (maxtime_nsecs / 1000)
+                if minstep_nsecs < 1:
+                    minstep_nsecs = 1
                 
     nrcols = len(column_definitions)
     # print(column_definitions)
@@ -523,7 +530,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
     if use_asc:
         netlist = spicelib.AscEditor(f"./{model_fname}")  # Open the Spice Model, and creates the tailored .asc file
     else:
-        if isinstance(simulator, LTspice):
+        if is_ltspice(simulator):
             encoding = "autodetect"  # LTSpice can use a lot of different encodings, even on the same platform
         else:
             encoding = "utf-8"
@@ -613,7 +620,7 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
         
         if not dryrun:
             opts = []
-            if isinstance(simulator, LTspice):
+            if is_ltspice(simulator):
                 if alt_solver:
                     opts.append('-alt')
                 else:
@@ -623,12 +630,12 @@ def run_job(job: object, jobnr: int, nrjobs: int, take_me: bool = True,
                 # keep timing, so I can print the process time
                 starttm = time.time()
                 try:
-                    simulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
+                    rv = simulator.run(netlistfile, opts, timeout=timeout, stdout=outfile, stderr=subprocess.STDOUT)
                 except subprocess.TimeoutExpired:
                     logger.error(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' timed out, exiting.")
                     return False
                 endtm = time.time()
-                logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds.")
+                logger.info(f"Job {jobnr}/{nrjobs}: \"{jobname}\", Trace {traceidx}/{nrtraces} '{tracename}' took {endtm - starttm:.1f} seconds, result = {rv}")
             
             # interpret the simulation results
             if not os.path.exists(rawfile):
@@ -887,6 +894,10 @@ if __name__ == "__main__":
         simulator = LTspice        
     if args.sim == "ngspice":
         simulator = NGspiceSimulator
+    logger.info(f"Using simulator: {args.sim}")
+    # logger.info(f"Simulator class == LTspice: {is_ltspice(simulator)}")  # this works
+    # logger.info(f"Simulator inst == LTspice: {isinstance(simulator, LTspice)}")  This fails, as it is a class
+    # logger.info(f"Simulator class name: {simulator.__name__}")
 
     # set the path for the spice executable
     if winepath or spicepath:
@@ -917,7 +928,7 @@ if __name__ == "__main__":
         exit(1)
     
     # set the paths for the libraries.
-    if isinstance(simulator, LTspice):
+    if is_ltspice(simulator):
         spicelib.AscEditor.prepare_for_simulator(simulator)
     spicelib.SpiceEditor.prepare_for_simulator(simulator)
                     
@@ -948,12 +959,12 @@ if __name__ == "__main__":
         if model_ext.lower() != ".asc":
             logger.error(f"You must provide a .asc file as model when you use --use_asc. The name \"{model_fname}\"is invalid.")
             exit(1)
-        if not isinstance(simulator, LTspice):
+        if not is_ltspice(simulator):
             logger.error("This simulator does not handle .asc files. Use LTspice.")
             exit(1)            
     else:
         if model_ext.lower() == ".asc":
-            if not isinstance(simulator, LTspice):
+            if not is_ltspice(simulator):
                 logger.error("This simulator does not handle .asc files. Use LTspice for those files.")
                 exit(1)            
             # convert to .net file

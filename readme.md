@@ -109,7 +109,7 @@ jobs: dict(dict)
   
     Format: ```[str, ...]```, where each ```str```, based on the spice ```.tran``` op command: "Tstop" or "Tstep Tstop" or "Tstep Tstop Tstart" (=> dTmax is not used). Additionally, a 'd' can be added at the end designating that this a dense graph, see '--dense'.
 
-    For all of these times, the resolution is 1 nanosecond. The minimum and the default Tstep is 1ns. You can safely specify '0' as Tstep, and that will force 1 nanosecond.
+    For all of these times, the resolution is 1 nanosecond. The minimum is 1ns for all. You can safely specify '0' as Tstep, and it will be passed as such to LTspice, and for NGspice it will be set to max(tstop)/1000.
   
     Example: ```["10u", "0 1010u 1000u", "0 2011u 2001u", "0 3011u 3001u", "4m d"]``` , creating a large graph with the following sub-graphs in columns:
   * 10 µsecs wide, starting at T0
